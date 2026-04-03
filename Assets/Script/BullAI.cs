@@ -31,8 +31,8 @@ public class BullAI : MonoBehaviour
     private float stateTimer, lastHitTime = -999f, engageTimer, attackRecoveryTimer, chargeStartedAt = -999f, telegraphStartDistance, telegraphTimer, chargeDuration, circlingAngle, circlingDirection = 1f, currentHorizontalMotion, autoAttackTimer, chargeQteTimer, chargeQteDuration;
     private float plannedChargeDistance, chargeLaneHalfWidth, displayedTelegraphTravelDistance;
     private bool timingActive, canDamagePlayerThisCharge, pendingCircleReset, hasRoamTarget, hasQueuedMovePosition, hasQueuedMoveRotation, autoAttackPending, autoAttackCommitted, isPlayerInsideChargeLane, dashedThisCharge, impactCirclesAfterCharge, chargeHasEligibleTarget, chargeQteResolved, chargeResultAllowsDamage, chargeMissCommitActive;
-    private Animator animator; private string currentAnimationState; private Vector3 chargeStartPosition, chargeDirection = Vector3.forward, roamCenter, roamTarget, circlingCenter, queuedMovePosition; private Quaternion queuedMoveRotation;
-    private Rigidbody bullRigidbody; private Collider bullCollider, playerCollider; private BullChargeHitbox chargeHitbox; private LineRenderer chargeTelegraphLine; private MeshFilter chargeTelegraphFillFilter; private MeshRenderer chargeTelegraphFillRenderer; private Mesh chargeTelegraphFillMesh;
+    private Animator animator; private BullAIAnimationView animationView; private BullAIChargeTelegraphView chargeTelegraphView; private Vector3 chargeStartPosition, chargeDirection = Vector3.forward, roamCenter, roamTarget, circlingCenter, queuedMovePosition; private Quaternion queuedMoveRotation;
+    private Rigidbody bullRigidbody; private Collider bullCollider, playerCollider; private BullChargeHitbox chargeHitbox;
     private readonly Collider[] chargeLaneOverlapResults = new Collider[8];
 
     public bool CanDamagePlayerThisCharge => canDamagePlayerThisCharge;
@@ -53,11 +53,12 @@ public class BullAI : MonoBehaviour
             bullCollider = body;
         }
         animator = GetComponent<Animator>();
+        animationView = new BullAIAnimationView(animator);
+        chargeTelegraphView = new BullAIChargeTelegraphView(transform);
         bullStats = GetComponent<BullStats>() ?? gameObject.AddComponent<BullStats>();
         _ = GetComponent<BullDebugOverlay>() ?? gameObject.AddComponent<BullDebugOverlay>();
         ConfigureRigidbody();
         EnsureChargeHitbox();
-        EnsureChargeTelegraph();
         AutoAssignReferences();
         roamCenter = GetCurrentBullPosition();
         currentState = BullState.Idle;
@@ -393,7 +394,7 @@ public class BullAI : MonoBehaviour
         }
 
         EnsureChargeTelegraph();
-        if (chargeTelegraphFillRenderer == null)
+        if (chargeTelegraphView == null)
             return;
 
         Vector3 forward = GetHorizontalDirectionToPlayer();
@@ -410,7 +411,7 @@ public class BullAI : MonoBehaviour
         Vector3 frontLeft = front - leftOffset;
         Vector3 frontRight = front + leftOffset;
         Vector3 backRight = origin + leftOffset;
-        UpdateChargeTelegraphFill(backLeft, frontLeft, frontRight, backRight);
+        chargeTelegraphView.ShowPreview(backLeft, frontLeft, frontRight, backRight, telegraphColor, telegraphFillColor);
     }
 
     private void UpdateAutoAttackTimer()
@@ -741,96 +742,12 @@ public class BullAI : MonoBehaviour
 
     private void EnsureChargeTelegraph()
     {
-        if (chargeTelegraphFillFilter != null && chargeTelegraphFillRenderer != null)
-            return;
-
-        Transform existing = transform.Find("ChargeTelegraph");
-        if (existing != null)
-        {
-            chargeTelegraphLine = existing.GetComponent<LineRenderer>();
-            if (chargeTelegraphLine != null)
-                chargeTelegraphLine.enabled = false;
-            existing.gameObject.SetActive(false);
-        }
-
-        Transform fillExisting = transform.Find("ChargeTelegraphFill");
-        GameObject fillObject = fillExisting != null ? fillExisting.gameObject : new GameObject("ChargeTelegraphFill");
-        if (fillObject.transform.parent != transform)
-            fillObject.transform.SetParent(transform, false);
-        fillObject.transform.localPosition = Vector3.zero;
-        fillObject.transform.localRotation = Quaternion.identity;
-        fillObject.transform.localScale = Vector3.one;
-
-        chargeTelegraphFillFilter = fillObject.GetComponent<MeshFilter>();
-        if (chargeTelegraphFillFilter == null)
-            chargeTelegraphFillFilter = fillObject.AddComponent<MeshFilter>();
-
-        chargeTelegraphFillRenderer = fillObject.GetComponent<MeshRenderer>();
-        if (chargeTelegraphFillRenderer == null)
-            chargeTelegraphFillRenderer = fillObject.AddComponent<MeshRenderer>();
-
-        if (chargeTelegraphFillMesh == null)
-        {
-            chargeTelegraphFillMesh = new Mesh
-            {
-                name = "ChargeTelegraphFillMesh"
-            };
-            chargeTelegraphFillMesh.MarkDynamic();
-        }
-
-        chargeTelegraphFillFilter.sharedMesh = chargeTelegraphFillMesh;
-        chargeTelegraphFillRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        chargeTelegraphFillRenderer.receiveShadows = false;
-        chargeTelegraphFillRenderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
-        chargeTelegraphFillRenderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-        chargeTelegraphFillRenderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-        chargeTelegraphFillRenderer.sharedMaterial = new Material(Shader.Find("Sprites/Default"))
-        {
-            color = telegraphFillColor
-        };
-        chargeTelegraphFillRenderer.enabled = false;
+        chargeTelegraphView ??= new BullAIChargeTelegraphView(transform);
     }
 
     private void HideChargeTelegraph()
     {
-        if (chargeTelegraphFillRenderer != null)
-            chargeTelegraphFillRenderer.enabled = false;
-    }
-
-    private void UpdateChargeTelegraphFill(Vector3 backLeft, Vector3 frontLeft, Vector3 frontRight, Vector3 backRight)
-    {
-        if (chargeTelegraphFillFilter == null || chargeTelegraphFillRenderer == null || chargeTelegraphFillMesh == null)
-            return;
-
-        Vector3[] vertices =
-        {
-            transform.InverseTransformPoint(backLeft),
-            transform.InverseTransformPoint(frontLeft),
-            transform.InverseTransformPoint(frontRight),
-            transform.InverseTransformPoint(backRight)
-        };
-
-        int[] triangles = { 0, 1, 2, 0, 2, 3 };
-        Vector2[] uvs =
-        {
-            new Vector2(0f, 0f),
-            new Vector2(0f, 1f),
-            new Vector2(1f, 1f),
-            new Vector2(1f, 0f)
-        };
-
-        chargeTelegraphFillMesh.Clear();
-        chargeTelegraphFillMesh.vertices = vertices;
-        chargeTelegraphFillMesh.triangles = triangles;
-        chargeTelegraphFillMesh.uv = uvs;
-        chargeTelegraphFillMesh.RecalculateBounds();
-        chargeTelegraphFillMesh.RecalculateNormals();
-
-        Material fillMaterial = chargeTelegraphFillRenderer.sharedMaterial;
-        if (fillMaterial != null)
-            fillMaterial.color = telegraphFillColor;
-
-        chargeTelegraphFillRenderer.enabled = true;
+        chargeTelegraphView?.Hide();
     }
 
     private void SnapToGround(bool forceSnap)
@@ -895,23 +812,9 @@ public class BullAI : MonoBehaviour
 
     private void UpdateAnimation()
     {
-        if (animator == null || animator.runtimeAnimatorController == null) return;
         bool isMovingHorizontally = currentHorizontalMotion > 0.02f;
-        string nextState = currentState switch
-        {
-            BullState.Idle => AnimationIdleCalm,
-            BullState.Roaming => isMovingHorizontally ? AnimationTrotForwardInPlace : AnimationIdleCalm,
-            BullState.Engaging => isMovingHorizontally ? AnimationTrotForwardInPlace : AnimationIdleThreat,
-            BullState.Telegraphing => AnimationAttackForwardInPlace,
-            BullState.Charging => isMovingHorizontally ? AnimationRunForwardInPlace : AnimationIdleThreat,
-            BullState.Impact => AnimationIdleThreat,
-            BullState.Hurt => AnimationTurnLeftInPlace,
-            BullState.Fatigued => AnimationIdleThreat,
-            BullState.CirclingReset => isMovingHorizontally ? AnimationTrotForwardInPlace : AnimationIdleCalm,
-            BullState.Dead => AnimationDeathLeft,
-            _ => AnimationIdleCalm
-        };
-        PlayAnimationClip(nextState, 0.1f);
+        animationView ??= new BullAIAnimationView(animator);
+        animationView.PlayState(currentState, isMovingHorizontally);
     }
 
     private void AutoAssignReferences()
@@ -947,7 +850,7 @@ public class BullAI : MonoBehaviour
 
     public void ResetCombatState()
     {
-        currentState = BullState.Roaming; stateTimer = 0f; ResetChargeQteState(); pendingCircleReset = false; engageTimer = engageDelay; lastHitTime = -999f; chargeStartedAt = -999f; chargeStartPosition = GetCurrentBullPosition(); chargeDirection = transform.forward.sqrMagnitude > 0.0001f ? transform.forward.normalized : Vector3.forward; currentAnimationState = null; roamCenter = GetArenaCenter(); hasRoamTarget = false; attackRecoveryTimer = 1.25f; plannedChargeDistance = 0f; displayedTelegraphTravelDistance = 0f; chargeLaneHalfWidth = 0f; dashedThisCharge = false; ClearAutoAttackState(); ScheduleNextAutoAttack(); HideChargeTelegraph();
+        currentState = BullState.Roaming; stateTimer = 0f; ResetChargeQteState(); pendingCircleReset = false; engageTimer = engageDelay; lastHitTime = -999f; chargeStartedAt = -999f; chargeStartPosition = GetCurrentBullPosition(); chargeDirection = transform.forward.sqrMagnitude > 0.0001f ? transform.forward.normalized : Vector3.forward; animationView?.Reset(); roamCenter = GetArenaCenter(); hasRoamTarget = false; attackRecoveryTimer = 1.25f; plannedChargeDistance = 0f; displayedTelegraphTravelDistance = 0f; chargeLaneHalfWidth = 0f; dashedThisCharge = false; ClearAutoAttackState(); ScheduleNextAutoAttack(); HideChargeTelegraph();
         if (timingScript != null) timingScript.HideImmediate();
         QueueMovePosition(ClampWithinArena(GetCurrentBullPosition(), arenaBoundaryPadding));
         SnapToGround(true);
@@ -989,20 +892,11 @@ public class BullAI : MonoBehaviour
 
     private void PlayAnimationClip(string clipName, float crossFadeDuration)
     {
-        if (string.IsNullOrWhiteSpace(clipName))
-            return;
-
         if (animator == null)
             animator = GetComponent<Animator>();
 
-        if (animator == null || animator.runtimeAnimatorController == null)
-            return;
-
-        if (currentAnimationState == clipName)
-            return;
-
-        animator.CrossFade(clipName, crossFadeDuration, 0, 0f);
-        currentAnimationState = clipName;
+        animationView ??= new BullAIAnimationView(animator);
+        animationView.Play(clipName, crossFadeDuration);
     }
 
     public void TryHitPlayerFromCharge(Collider other)
