@@ -17,6 +17,13 @@ public class BullfightPlayerController : MonoBehaviour
     public KeyCode phaseTwoCalibrationKey = KeyCode.G;
     public KeyCode phaseTwoStabKey = KeyCode.E;
 
+    public string GetHoldClothKeyLabel() => holdClothKey.ToString();
+    public string GetCapaKeyLabel() => capaKey.ToString();
+    public string GetEvadeKeyLabel() => evadeKey.ToString();
+    public string GetAttackKeyLabel() => attackKey.ToString();
+    public string GetPhaseTwoCalibrationKeyLabel() => phaseTwoCalibrationKey.ToString();
+    public string GetPhaseTwoStabKeyLabel() => phaseTwoStabKey.ToString();
+
     [Header("Action Assets")]
     [SerializeField] private InputActionAsset bullfightActionsAsset;
 

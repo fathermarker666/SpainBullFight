@@ -17,6 +17,10 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
     [SerializeField] private Color blockedLineColor = new Color(0.55f, 0.55f, 0.55f, 0.8f);
     [SerializeField] private Color capaFillColor = new Color(0.95f, 0.34f, 0.18f, 1f);
 
+    [Header("Stamina bar frame")]
+    [SerializeField] private Color staminaFrameAttackReadyColor = new Color(1f, 0.94f, 0.2f, 1f);
+    [SerializeField] private Color staminaFrameDashReadyColor = new Color(0.22f, 0.62f, 1f, 1f);
+
     private PlayerStats playerStats;
     private BullfightPlayerController playerController;
     private BullAI bullAI;
@@ -34,6 +38,9 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
     private Color cachedFillColor;
     private bool hasCachedFillColor;
     private bool legacyPreviewDisabled;
+    private Image staminaBarFrameImage;
+    private Color cachedFrameColor;
+    private bool hasCachedFrameColor;
 
     private void Awake()
     {
@@ -99,6 +106,8 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
             hasCachedFillColor = true;
         }
 
+        EnsureStaminaBarFrameImage();
+
         if (capaGuideImage == null)
             capaGuideImage = CreateGuideImage("CapaGuideLine");
 
@@ -126,6 +135,7 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
         {
             RestoreFillColor();
             HideAllGuides();
+            RestoreStaminaBarFrameColor();
             return;
         }
 
@@ -133,6 +143,7 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
         {
             RestoreFillColor();
             HideAllGuides();
+            RestoreStaminaBarFrameColor();
             return;
         }
 
@@ -142,6 +153,7 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
             HideGuide(attackGuideImage, attackGuideLabel);
             HideGuide(dashGuideImage, dashGuideLabel);
             UpdateGuide(capaGuideImage, capaGuideLabel, true, playerStats.capaCost, capaLineColor, playerStats.HasEnoughStamina(playerStats.capaCost), "CAPA");
+            UpdateStaminaBarFrameColor();
             return;
         }
 
@@ -152,6 +164,49 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
         bool attackVisible = IsAttackPreviewAvailable();
         bool attackAffordable = attackVisible && playerStats.HasEnoughStamina(playerStats.banderillasCost);
         UpdateGuide(attackGuideImage, attackGuideLabel, attackVisible, playerStats.banderillasCost, attackLineColor, attackAffordable, "ATTACK");
+        UpdateStaminaBarFrameColor();
+    }
+
+    private void EnsureStaminaBarFrameImage()
+    {
+        if (staminaBarFrameImage != null || staminaSlider == null)
+            return;
+
+        Transform bg = staminaSlider.transform.Find("Background");
+        if (bg != null)
+            staminaBarFrameImage = bg.GetComponent<Image>();
+
+        if (staminaBarFrameImage == null && staminaSlider.targetGraphic is Image targetImg)
+            staminaBarFrameImage = targetImg;
+
+        if (staminaBarFrameImage != null && !hasCachedFrameColor)
+        {
+            cachedFrameColor = staminaBarFrameImage.color;
+            hasCachedFrameColor = true;
+        }
+    }
+
+    private void UpdateStaminaBarFrameColor()
+    {
+        EnsureStaminaBarFrameImage();
+        if (staminaBarFrameImage == null || playerStats == null)
+            return;
+
+        bool attackReady = IsAttackPreviewAvailable() && playerStats.HasEnoughStamina(playerStats.banderillasCost);
+        bool dashReady = playerStats.HasEnoughStamina(playerStats.dashCost);
+
+        if (attackReady)
+            staminaBarFrameImage.color = staminaFrameAttackReadyColor;
+        else if (dashReady)
+            staminaBarFrameImage.color = staminaFrameDashReadyColor;
+        else
+            RestoreStaminaBarFrameColor();
+    }
+
+    private void RestoreStaminaBarFrameColor()
+    {
+        if (staminaBarFrameImage != null && hasCachedFrameColor)
+            staminaBarFrameImage.color = cachedFrameColor;
     }
 
     private bool IsAttackPreviewAvailable()

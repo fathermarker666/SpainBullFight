@@ -22,17 +22,18 @@ public class BullAI : MonoBehaviour
 
     [Header("State")] public BullState currentState = BullState.Idle;
     [Header("References")] public Transform player; public PlayerStats playerStats; public BullfightPlayerController playerController; public BullStats bullStats; public BullTimingRing timingScript; public BullfightGameFlow gameFlow; public BullfightSpawnManager spawnManager;
+    [Header("QTE Presentation")] public Transform qteRingAnchor; public float qteRingFallbackHeadHeight = 1.6f;
     [Header("Trigger")] public float detectRange = 18f; public float dangerTriggerDistance = 3.6f; public float tauntTriggerDistance = 9f; public float telegraphRange = 3f; public float telegraphMissDistance = 1.1f; public float safeReengageDistance = 3.6f; public float banderillasRange = 4.5f;
     [Header("Visibility")] public float telegraphVisibleDot = 0.18f;
     [Header("Movement")] public float roamingSpeed = 1.21f; public float engageApproachSpeed = 0.6f; public float telegraphApproachSpeed = 0.75f; public float chargeSpeed = 1.85f; public float turnSpeed = 6f; public float roamingRadius = 4.2f; public Vector2 roamingPauseRange = new Vector2(0.45f, 1.15f); public float postChargeCircleRadius = 3.3f; public float postChargeCircleDuration = 3f; public float arenaBoundaryPadding = 0.45f;
     [Header("Grounding")] public float groundProbeHeight = 12f; public float groundSnapSpeed = 20f; public float visualGroundOffset = 0f;
     [Header("Combat")] public float collisionDamage = 50f; public float banderillasDamage = 25f; public float hitDistance = 0.75f; public float hitCooldown = 1f; public float minimumChargeTravelDistance = 1.2f; public float minimumChargeHitDelay = 0.65f; public float engageDelay = 0.9f; public float successfulDodgeInvulnerability = 1.2f; public float attackRecoveryDuration = 5.2f; public Vector2 fatigueDurationRange = new Vector2(5f, 5.8f); public float maxChargeDistance = 3.8f; public float telegraphDuration = 1.8f; public float hurtFlinchDuration = 0.45f; public float chargeImpactStopBuffer = 0.4f;
-    [Header("Charge QTE")] public float qteRevealRemainingDistance = 0.9f; public float qteRevealRemainingTime = 0.5f; public float closeRangePenaltyStart = 1.3f; public float closeRangePenaltyEnd = 0.8f; public float telegraphLanePadding = 0.18f; public float cameraClearanceBuffer = 0.16f; public float impactDuration = 0.12f; public float laneCheckHeight = 2f; public float telegraphYOffset = 0.04f; public Color telegraphColor = new Color(1f, 0.14f, 0.14f, 0.9f); public Color telegraphFillColor = new Color(1f, 0.14f, 0.14f, 0.38f);
+    [Header("Charge QTE")] public float qteRevealRemainingDistance = 0.9f; public float qteRevealRemainingTime = 0.5f; public float closeRangePenaltyStart = 1.3f; public float closeRangePenaltyEnd = 0.8f; public float telegraphLanePadding = 0.18f; public float cameraClearanceBuffer = 0.16f; public float impactDuration = 0.12f; public float laneCheckHeight = 2f; public float telegraphYOffset = 0.04f; public Color telegraphColor = new Color(1f, 0.14f, 0.14f, 0.9f); public Color telegraphFillColor = new Color(1f, 0.14f, 0.14f, 0.38f); public float missCommitCollisionIgnoreDuration = 0.45f;
     [Header("Auto Attack")] public bool enableAutoAttack = true; public float autoAttackInterval = 20f; public float autoAttackTelegraphRange = 3f;
     [Header("Debug")] public bool useDebugTuning = false;
 
     private float stateTimer, lastHitTime = -999f, engageTimer, attackRecoveryTimer, chargeStartedAt = -999f, telegraphStartDistance, telegraphTimer, chargeDuration, circlingAngle, circlingDirection = 1f, currentHorizontalMotion, autoAttackTimer, chargeQteTimer, chargeQteDuration;
-    private float plannedChargeDistance, chargeLaneHalfWidth, displayedTelegraphTravelDistance;
+    private float plannedChargeDistance, chargePlannedDistanceAtChargeStart, chargeLaneHalfWidth, displayedTelegraphTravelDistance;
     private bool timingActive, canDamagePlayerThisCharge, pendingCircleReset, hasRoamTarget, hasQueuedMovePosition, hasQueuedMoveRotation, autoAttackPending, autoAttackCommitted, isPlayerInsideChargeLane, dashedThisCharge, impactCirclesAfterCharge, chargeHasEligibleTarget, chargeQteResolved, chargeResultAllowsDamage, chargeMissCommitActive, externalChargeTimingControl;
     private bool tutorialControlActive, tutorialChargeDamageEnabled, tutorialChargeSequenceActive, tutorialChargeSequenceComplete, tutorialChargeHitPlayer, tutorialChargeUsesTiming;
     private string tutorialChargeResult = string.Empty;
@@ -40,6 +41,7 @@ public class BullAI : MonoBehaviour
     private Rigidbody bullRigidbody; private Collider bullCollider, playerCollider; private BullChargeHitbox chargeHitbox;
     private readonly Collider[] chargeLaneOverlapResults = new Collider[8];
     private BullfightGameFlow linkedGameFlow;
+    private bool missCommitPlayerCollisionIgnored;
 
     public bool CanDamagePlayerThisCharge => canDamagePlayerThisCharge;
     public bool CanReceiveChargeTimingInput => currentState == BullState.Charging && timingActive;
@@ -517,7 +519,7 @@ public class BullAI : MonoBehaviour
                 chargeResultAllowsDamage = false;
                 chargeMissCommitActive = false;
                 if (timingScript != null)
-                    timingScript.HideImmediate();
+                    timingScript.HideImmediate(false);
                 playerStats.GrantInvulnerability(successfulDodgeInvulnerability);
                 if (result == "Perfect!")
                     playerStats.RewardPerfectDodge();
@@ -565,7 +567,7 @@ public class BullAI : MonoBehaviour
     {
         CancelAutoAttackAndReschedule();
         currentState = BullState.Fatigued; ResetChargeQteState(); pendingCircleReset = circleAfterCharge; hasRoamTarget = false; stateTimer = tutorialControlActive && tutorialChargeSequenceActive ? 0.45f : UnityEngine.Random.Range(fatigueDurationRange.x, fatigueDurationRange.y); attackRecoveryTimer = tutorialControlActive && tutorialChargeSequenceActive ? 0.3f : attackRecoveryDuration; HideChargeTelegraph();
-        if (timingScript != null) timingScript.HideImmediate();
+        if (timingScript != null) timingScript.HideImmediate(false);
     }
 
     private void EnterImpact(bool circleAfterCharge)
@@ -576,7 +578,7 @@ public class BullAI : MonoBehaviour
         stateTimer = impactDuration;
         HideChargeTelegraph();
         if (timingScript != null)
-            timingScript.HideImmediate();
+            timingScript.HideImmediate(false);
     }
 
     private void StartCharge(bool damagingCharge, string reason)
@@ -594,6 +596,7 @@ public class BullAI : MonoBehaviour
         chargeDirection.y = 0f;
         chargeDirection.Normalize();
         plannedChargeDistance = GetPlannedChargeDistance(HorizontalDistanceToPlayer());
+        chargePlannedDistanceAtChargeStart = plannedChargeDistance;
         displayedTelegraphTravelDistance = plannedChargeDistance;
         chargeLaneHalfWidth = GetChargeLaneHalfWidth();
         isPlayerInsideChargeLane = IsPlayerInsideActiveChargeLane();
@@ -624,11 +627,11 @@ public class BullAI : MonoBehaviour
         canDamagePlayerThisCharge = true;
         SetDashSuppressed(false);
         if (timingScript != null)
-            timingScript.HideImmediate();
+            timingScript.HideImmediate(false);
 
         float remainingCommitDistance = Mathf.Max(MissCommitDistance, hitDistance + chargeImpactStopBuffer);
         float chargeTravelDistance = HorizontalDistance(chargeStartPosition, GetCurrentBullPosition());
-        plannedChargeDistance = Mathf.Max(plannedChargeDistance, chargeTravelDistance + remainingCommitDistance);
+        plannedChargeDistance = Mathf.Max(chargePlannedDistanceAtChargeStart, chargeTravelDistance + remainingCommitDistance);
         stateTimer = Mathf.Max(stateTimer, remainingCommitDistance / Mathf.Max(0.01f, GetChargeSpeed()));
     }
 
@@ -850,6 +853,13 @@ public class BullAI : MonoBehaviour
     {
         StopBullMotionImmediate();
         PlayAnimationClip(wasPerfect ? AnimationHitFront : AnimationHitMiddle, 0.06f);
+
+        PlayerStats stats = playerStats != null ? playerStats : (player != null ? player.GetComponent<PlayerStats>() : null);
+        if (stats == null)
+            return;
+
+        stats.TriggerHitStop(wasPerfect ? 0.24f : 0.2f, 0.03f);
+        stats.TriggerVibration(1f, 1f, wasPerfect ? 0.5f : 0.4f);
     }
 
     public void PlayPhaseTwoRoundResetIdle()
@@ -938,8 +948,47 @@ public class BullAI : MonoBehaviour
     private void UpdateAnimation()
     {
         bool isMovingHorizontally = currentHorizontalMotion > 0.02f;
+        if (currentState == BullState.Charging && chargeMissCommitActive)
+            isMovingHorizontally = true;
         animationView ??= new BullAIAnimationView(animator);
         animationView.PlayState(currentState, isMovingHorizontally);
+    }
+
+    public bool TryGetQteRingWorldAnchor(out Vector3 worldPosition)
+    {
+        if (qteRingAnchor != null)
+        {
+            worldPosition = qteRingAnchor.position;
+            return true;
+        }
+
+        Transform head = FindDescendantByName(transform, "head");
+        if (head != null)
+        {
+            worldPosition = head.position;
+            return true;
+        }
+
+        worldPosition = transform.position + Vector3.up * qteRingFallbackHeadHeight;
+        return true;
+    }
+
+    private static Transform FindDescendantByName(Transform root, string targetName)
+    {
+        if (root == null)
+            return null;
+
+        if (string.Equals(root.name, targetName, StringComparison.OrdinalIgnoreCase))
+            return root;
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform found = FindDescendantByName(root.GetChild(i), targetName);
+            if (found != null)
+                return found;
+        }
+
+        return null;
     }
 
     private bool HasMissingReferences()
@@ -1084,21 +1133,59 @@ public class BullAI : MonoBehaviour
 
         lastHitTime = Time.time;
         canDamagePlayerThisCharge = false;
-        if (TryGetPlayerCollider(out Collider activePlayerCollider))
-            StopBullShortOfPlayer(activePlayerCollider, chargeImpactStopBuffer);
 
         if (tutorialControlActive && tutorialChargeSequenceActive)
         {
             tutorialChargeHitPlayer = true;
             if (!tutorialChargeDamageEnabled)
             {
+                if (TryGetPlayerCollider(out Collider tutorialPlayerCollider))
+                    StopBullShortOfPlayer(tutorialPlayerCollider, chargeImpactStopBuffer);
                 EnterImpact(true);
                 return;
             }
         }
 
+        if (chargeMissCommitActive && playerStats != null)
+        {
+            playerStats.TakeDamage(collisionDamage);
+            BeginTemporaryIgnoreBullPlayerCollision(missCommitCollisionIgnoreDuration);
+            EnterImpact(true);
+            return;
+        }
+
+        if (TryGetPlayerCollider(out Collider activePlayerCollider))
+            StopBullShortOfPlayer(activePlayerCollider, chargeImpactStopBuffer);
+
         playerStats.TakeBullImpact(collisionDamage, GetCurrentBullPosition());
         EnterImpact(true);
+    }
+
+    private void BeginTemporaryIgnoreBullPlayerCollision(float duration)
+    {
+        if (!TryGetPlayerCollider(out Collider pc) || bullCollider == null)
+            return;
+
+        CancelInvoke(nameof(RestoreBullPlayerCollisionAfterMiss));
+        if (!missCommitPlayerCollisionIgnored)
+            Physics.IgnoreCollision(bullCollider, pc, true);
+        missCommitPlayerCollisionIgnored = true;
+        Invoke(nameof(RestoreBullPlayerCollisionAfterMiss), Mathf.Max(0.05f, duration));
+    }
+
+    private void RestoreBullPlayerCollisionAfterMiss()
+    {
+        if (!missCommitPlayerCollisionIgnored)
+            return;
+
+        if (TryGetPlayerCollider(out Collider pc) && bullCollider != null)
+            Physics.IgnoreCollision(bullCollider, pc, false);
+        missCommitPlayerCollisionIgnored = false;
+    }
+
+    private void OnDisable()
+    {
+        RestoreBullPlayerCollisionAfterMiss();
     }
 
     private void StopBullShortOfPlayer(Collider activePlayerCollider, float extraBuffer)

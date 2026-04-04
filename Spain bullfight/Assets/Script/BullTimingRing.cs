@@ -33,6 +33,9 @@ public class BullTimingRing : MonoBehaviour
     public BullfightPlayerController playerController;
     public BullAI bullAI;
 
+    [Header("QTE layout")]
+    public Vector2 ringScreenOffset = new Vector2(0f, 96f);
+
     private float currentProgress;
     private float currentScale;
     private float feedbackTimer;
@@ -51,8 +54,6 @@ public class BullTimingRing : MonoBehaviour
     private Image runtimeRingImage;
     private TextMeshProUGUI runtimeFeedbackText;
     private Sprite fallbackSprite;
-    private readonly Vector2 capaScreenOffset = new Vector2(0f, 96f);
-    private readonly Vector2 feedbackScreenOffset = new Vector2(0f, 84f);
 
     public bool IsActive => isActive;
     public bool IsInputArmed => isActive && inputArmed;
@@ -127,16 +128,19 @@ public class BullTimingRing : MonoBehaviour
         UpdateRingColor();
     }
 
-    public void HideImmediate()
+    public void HideImmediate(bool clearFeedback = true)
     {
         isActive = false;
         inputArmed = false;
         onResolved = null;
-        feedbackTimer = 0f;
 
         if (ringImage != null)
             ringImage.enabled = false;
 
+        if (!clearFeedback)
+            return;
+
+        feedbackTimer = 0f;
         if (feedbackText != null)
         {
             feedbackText.text = string.Empty;
@@ -174,9 +178,26 @@ public class BullTimingRing : MonoBehaviour
 
     public void ResetTimingWindow()
     {
-        activeGoodProgress = Mathf.Clamp01(goodProgress);
-        activePerfectProgress = Mathf.Clamp01(Mathf.Max(activeGoodProgress, perfectProgress));
+        if (UseLenientPhaseThresholds())
+        {
+            activeGoodProgress = 0.5f;
+            activePerfectProgress = 0.75f;
+        }
+        else
+        {
+            activeGoodProgress = Mathf.Clamp01(goodProgress);
+            activePerfectProgress = Mathf.Clamp01(Mathf.Max(activeGoodProgress, perfectProgress));
+        }
+
         UpdateRingColor();
+    }
+
+    private bool UseLenientPhaseThresholds()
+    {
+        return bullAI != null &&
+               bullAI.gameFlow != null &&
+               (bullAI.gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseZeroTutorial ||
+                bullAI.gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseOne);
     }
 
     public void ResolveExternal(string result)
@@ -192,6 +213,7 @@ public class BullTimingRing : MonoBehaviour
         if (feedbackText == null)
             return;
 
+        feedbackText.enabled = true;
         feedbackText.text = result switch
         {
             "Perfect!" => "\u5b8c\u7f8e",
@@ -204,7 +226,8 @@ public class BullTimingRing : MonoBehaviour
             "Good" => goodColor,
             _ => missColor
         };
-        feedbackText.gameObject.SetActive(true);
+        if (!feedbackText.gameObject.activeSelf)
+            feedbackText.gameObject.SetActive(true);
         feedbackTimer = 1.5f;
     }
 
@@ -215,12 +238,35 @@ public class BullTimingRing : MonoBehaviour
         if (ringImage != null)
             ringImage.enabled = false;
 
+        UpdateRingColor();
+        ApplyCapaTimingHaptics(result);
         ShowFeedback(result);
 
         Action<string> callback = onResolved;
         onResolved = null;
         OnTimingResolved?.Invoke(result);
         callback?.Invoke(result);
+    }
+
+    /// <summary>
+    /// Phase-two Estocada uses <see cref="BullAI.PlayPhaseTwoHitReaction"/> for climax feedback; Capa QTE uses this path.
+    /// </summary>
+    private void ApplyCapaTimingHaptics(string result)
+    {
+        if (currentMode == TimingMode.Estocada)
+            return;
+
+        PlayerStats stats = ResolvePlayerStatsForHaptics();
+        if (stats == null)
+            return;
+
+        if (result == "Perfect!")
+        {
+            stats.TriggerHitStop(0.15f);
+            stats.TriggerVibration(0f, 1.0f, 0.15f);
+        }
+        else if (result == "Good")
+            stats.TriggerVibration(0f, 0.5f, 0.1f);
     }
 
     private void UpdateRingColor()
@@ -493,7 +539,7 @@ public class BullTimingRing : MonoBehaviour
         feedbackRect.anchorMin = new Vector2(0.5f, 0.5f);
         feedbackRect.anchorMax = new Vector2(0.5f, 0.5f);
         feedbackRect.pivot = new Vector2(0.5f, 0.5f);
-        feedbackRect.anchoredPosition = feedbackScreenOffset;
+        feedbackRect.anchoredPosition = Vector2.zero;
         feedbackRect.sizeDelta = new Vector2(520f, 120f);
         feedbackRect.localScale = Vector3.one;
         feedbackRect.localRotation = Quaternion.identity;
@@ -553,71 +599,36 @@ public class BullTimingRing : MonoBehaviour
 
     private void UpdateTrackedPresentation()
     {
-        if ((isActive || feedbackTimer > 0f) && currentMode == TimingMode.Capa)
-        {
-            Vector2 anchor = GetCapaAnchorPosition();
-            if (ringRect != null)
-                ringRect.anchoredPosition = anchor;
-
-            if (feedbackRect != null)
-                feedbackRect.anchoredPosition = anchor + feedbackScreenOffset;
-            return;
-        }
-
-        if (!isActive || currentMode == TimingMode.Capa)
+        if (!isActive && feedbackTimer <= 0f)
             return;
 
+        Vector2 ringAnchor = GetRingScreenAnchoredPosition();
         if (ringRect != null)
-            ringRect.anchoredPosition = Vector2.zero;
+            ringRect.anchoredPosition = ringAnchor;
 
         if (feedbackRect != null)
-            feedbackRect.anchoredPosition = feedbackScreenOffset;
+            feedbackRect.anchoredPosition = Vector2.zero;
     }
 
-    private Vector2 GetCapaAnchorPosition()
+    private Vector2 GetRingScreenAnchoredPosition()
     {
         Camera referenceCamera = Camera.main;
         Vector3 screenPoint = new Vector3(Screen.width * 0.5f, Screen.height * 0.5f, 0f);
 
-        if (TryGetCapaWorldAnchor(referenceCamera, out Vector3 worldAnchor))
-        {
-            if (referenceCamera != null)
-            {
-                Vector3 projected = referenceCamera.WorldToScreenPoint(worldAnchor);
-                if (projected.z > 0.01f)
-                    screenPoint = projected;
-            }
-        }
-
-        return new Vector2(
-            screenPoint.x - (Screen.width * 0.5f),
-            screenPoint.y - (Screen.height * 0.5f)) + capaScreenOffset;
-    }
-
-    private bool TryGetCapaWorldAnchor(Camera referenceCamera, out Vector3 worldAnchor)
-    {
         if (HasMissingReferences())
             ResolveReferencesIfNeeded();
 
-        if (bullAI != null && bullAI.playerStats != null && bullAI.playerStats.TryGetFirstPersonCameraPoint(out Vector3 cameraPoint))
+        if (bullAI != null && bullAI.TryGetQteRingWorldAnchor(out Vector3 worldAnchor) && referenceCamera != null)
         {
-            Transform cameraTransform = referenceCamera != null ? referenceCamera.transform : null;
-            if (cameraTransform != null)
-            {
-                worldAnchor = cameraPoint + (cameraTransform.forward * 2f) + (cameraTransform.up * 0.3f);
-                return true;
-            }
+            Vector3 projected = referenceCamera.WorldToScreenPoint(worldAnchor);
+            if (projected.z > 0.01f)
+                screenPoint = projected;
         }
 
-        Transform target = playerController != null ? playerController.transform : bullAI != null ? bullAI.player : null;
-        if (target != null)
-        {
-            worldAnchor = target.position + Vector3.up * 2f;
-            return true;
-        }
-
-        worldAnchor = Vector3.zero;
-        return false;
+        return new Vector2(
+                   screenPoint.x - (Screen.width * 0.5f),
+                   screenPoint.y - (Screen.height * 0.5f))
+               + ringScreenOffset;
     }
 
     private string EvaluateResult()
@@ -629,5 +640,16 @@ public class BullTimingRing : MonoBehaviour
             return "Good";
 
         return "Miss";
+    }
+
+    private PlayerStats ResolvePlayerStatsForHaptics()
+    {
+        if (playerController != null && playerController.playerStats != null)
+            return playerController.playerStats;
+
+        if (HasMissingReferences())
+            ResolveReferencesIfNeeded();
+
+        return playerController != null ? playerController.playerStats : null;
     }
 }

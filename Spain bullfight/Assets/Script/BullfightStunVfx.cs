@@ -13,6 +13,15 @@ public class BullfightStunVfx : MonoBehaviour
     public float damageFlashAlpha = 0.42f;
     public float damageFlashFadeSpeed = 4.5f;
 
+    [Header("Damage feedback")]
+    public float damageImpactShockDuration = 0.55f;
+
+    [Header("Low health warning")]
+    public float lowHealthThreshold = 0.25f;
+    public float lowHealthPulseSpeed = 1.15f;
+    public float lowHealthAlphaMin = 0.1f;
+    public float lowHealthAlphaMax = 0.3f;
+
     [Header("Dizzy Feel")]
     public float lingerDuration = 1.7f;
     public float pulseFrequency = 2.1f;
@@ -25,6 +34,7 @@ public class BullfightStunVfx : MonoBehaviour
 
     private Canvas overlayCanvas;
     private Image grayOverlay;
+    private Image lowHealthOverlay;
     private Image damageOverlay;
     private RawImage vignetteOverlay;
     private RectTransform vignetteRect;
@@ -65,6 +75,7 @@ public class BullfightStunVfx : MonoBehaviour
         effectTime = currentWeight > 0.001f ? effectTime + Time.unscaledDeltaTime : 0f;
 
         ApplyWeight();
+        ApplyLowHealthWarning();
         ApplyDistortion();
     }
 
@@ -91,6 +102,13 @@ public class BullfightStunVfx : MonoBehaviour
         grayOverlay.raycastTarget = false;
         grayOverlay.color = new Color(0.5f, 0.5f, 0.5f, 0f);
         StretchFullScreen(grayOverlay.rectTransform);
+
+        GameObject lowHealth = new GameObject("LowHealthOverlay");
+        lowHealth.transform.SetParent(root.transform, false);
+        lowHealthOverlay = lowHealth.AddComponent<Image>();
+        lowHealthOverlay.raycastTarget = false;
+        lowHealthOverlay.color = new Color(0.92f, 0.18f, 0.18f, 0f);
+        StretchFullScreen(lowHealthOverlay.rectTransform);
 
         GameObject damage = new GameObject("DamageOverlay");
         damage.transform.SetParent(root.transform, false);
@@ -128,9 +146,33 @@ public class BullfightStunVfx : MonoBehaviour
             vignetteOverlay.color = new Color(0f, 0f, 0f, boostedVignetteAlpha * visualWeight);
     }
 
+    private void ApplyLowHealthWarning()
+    {
+        if (lowHealthOverlay == null || playerStats == null)
+            return;
+
+        bool active = !playerStats.IsDead && playerStats.HealthNormalized < lowHealthThreshold;
+        if (!active)
+        {
+            Color c = lowHealthOverlay.color;
+            lowHealthOverlay.color = new Color(c.r, c.g, c.b, 0f);
+            return;
+        }
+
+        float ping = Mathf.PingPong(Time.unscaledTime * lowHealthPulseSpeed, 1f);
+        float a = Mathf.Lerp(lowHealthAlphaMin, lowHealthAlphaMax, ping);
+        lowHealthOverlay.color = new Color(0.92f, 0.18f, 0.18f, a);
+    }
+
     public void TriggerDamageFlash()
     {
         damageFlashWeight = 1f;
+        if (damageImpactShockDuration > 0f)
+            shockTimer = Mathf.Max(shockTimer, damageImpactShockDuration);
+
+        if (playerStats != null)
+            playerStats.TriggerVibration(1.0f, 0.2f, 0.5f);
+
         if (damageOverlay != null)
             damageOverlay.transform.SetAsLastSibling();
         ApplyWeight();

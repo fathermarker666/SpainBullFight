@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Serialization;
@@ -46,6 +47,11 @@ public class PlayerStats : MonoBehaviour
     public float perfectDodgeSpeedMultiplier = 1.25f;
     public float perfectDodgeStaminaRestore = 40f;
 
+    [Header("Phase Two Lives")]
+    public bool isPhaseTwoActive;
+    public int phaseTwoMaxLives = 3;
+    public int phaseTwoPlayerHealth = 3;
+
     [Header("Debug")]
     public bool isStunned;
     public bool isActing;
@@ -73,11 +79,15 @@ public class PlayerStats : MonoBehaviour
     private CameraLook cameraLook;
     private Movement movementComponent;
     private bool shooterGameplayEnabled = true;
+    private float incomingDamageMultiplier = 1f;
     private bool deathPresentationApplied;
     private bool cachedGameplayNearClip;
     private Quaternion cachedCameraLocalRotation = Quaternion.identity;
     private float cachedGameplayNearClipPlane;
     private bool perfectDodgeBuffActive;
+    private Coroutine activeVibrationRoutine;
+    private Coroutine hitStopRoutine;
+    private float hitStopResumeTimeScale = 1f;
 
     [Header("Death Presentation")]
     [SerializeField] private Vector3 deathCameraEuler = new Vector3(-70f, 0f, 0f);
@@ -91,6 +101,111 @@ public class PlayerStats : MonoBehaviour
     public float HealthNormalized => maxHealth <= 0f ? 0f : currentHealth / maxHealth;
     public float StaminaNormalized => maxStamina <= 0f ? 0f : currentStamina / maxStamina;
     public float evadeCost => dashCost;
+
+    public void SetIncomingDamageMultiplier(float multiplier)
+    {
+        incomingDamageMultiplier = Mathf.Max(0f, multiplier);
+    }
+
+    public float GetIncomingDamageMultiplier() => incomingDamageMultiplier;
+
+    public void TriggerVibration(float lowFreq, float highFreq, float duration)
+    {
+        Gamepad pad = Gamepad.current;
+        if (pad == null)
+            return;
+
+        lowFreq = Mathf.Clamp01(lowFreq);
+        highFreq = Mathf.Clamp01(highFreq);
+
+        if (activeVibrationRoutine != null)
+            StopCoroutine(activeVibrationRoutine);
+
+        activeVibrationRoutine = StartCoroutine(VibrationRoutine(pad, lowFreq, highFreq, duration));
+    }
+
+    /// <summary>
+    /// Brief hit stop using <see cref="Time.timeScale"/> (real-time duration via unscaled wait).
+    /// </summary>
+    public void TriggerHitStop(float duration, float slowSpeed = 0.05f)
+    {
+        if (duration <= 0f)
+            return;
+
+        EndHitStopImmediate();
+
+        hitStopResumeTimeScale = Time.timeScale > 0.0001f ? Time.timeScale : 1f;
+        hitStopRoutine = StartCoroutine(HitStopRoutine(duration, slowSpeed));
+    }
+
+    private void EndHitStopImmediate()
+    {
+        if (hitStopRoutine == null)
+            return;
+
+        StopCoroutine(hitStopRoutine);
+        hitStopRoutine = null;
+        Time.timeScale = hitStopResumeTimeScale > 0.0001f ? hitStopResumeTimeScale : 1f;
+        Time.fixedDeltaTime = 0.02f * Mathf.Max(Time.timeScale, 0.0001f);
+    }
+
+    private IEnumerator HitStopRoutine(float duration, float slowSpeed)
+    {
+        float clampedSlow = Mathf.Clamp(slowSpeed, 0.0001f, 1f);
+        Time.timeScale = clampedSlow;
+        Time.fixedDeltaTime = 0.02f * Time.timeScale;
+
+        yield return new WaitForSecondsRealtime(Mathf.Max(0.001f, duration));
+
+        Time.timeScale = hitStopResumeTimeScale > 0.0001f ? hitStopResumeTimeScale : 1f;
+        Time.fixedDeltaTime = 0.02f * Mathf.Max(Time.timeScale, 0.0001f);
+        hitStopRoutine = null;
+    }
+
+    private IEnumerator VibrationRoutine(Gamepad pad, float lowFreq, float highFreq, float duration)
+    {
+        pad.SetMotorSpeeds(lowFreq, highFreq);
+        yield return new WaitForSecondsRealtime(Mathf.Max(0.01f, duration));
+        if (Gamepad.current != null)
+            Gamepad.current.SetMotorSpeeds(0f, 0f);
+        activeVibrationRoutine = null;
+    }
+
+    private void StopAllVibration()
+    {
+        if (activeVibrationRoutine != null)
+        {
+            StopCoroutine(activeVibrationRoutine);
+            activeVibrationRoutine = null;
+        }
+
+        Gamepad pad = Gamepad.current;
+        if (pad != null)
+            pad.SetMotorSpeeds(0f, 0f);
+    }
+
+    private void OnDisable()
+    {
+        StopAllVibration();
+        EndHitStopImmediate();
+    }
+
+    public void EnterPhaseTwoLivesMode(int maxLives)
+    {
+        isPhaseTwoActive = true;
+        phaseTwoMaxLives = Mathf.Max(1, maxLives);
+        phaseTwoPlayerHealth = phaseTwoMaxLives;
+        currentHealth = maxHealth;
+        currentStamina = maxStamina;
+        UpdateUI();
+    }
+
+    public void ExitPhaseTwoLivesMode()
+    {
+        isPhaseTwoActive = false;
+        phaseTwoPlayerHealth = phaseTwoMaxLives;
+        UpdateUI();
+    }
 
     private void Awake()
     {
@@ -151,6 +266,9 @@ public class PlayerStats : MonoBehaviour
 
     public bool TrySpendStamina(float amount)
     {
+        if (isPhaseTwoActive)
+            return true;
+
         if (currentStamina < amount)
             return false;
 
@@ -163,6 +281,9 @@ public class PlayerStats : MonoBehaviour
 
     public bool HasEnoughStamina(float amount)
     {
+        if (isPhaseTwoActive)
+            return true;
+
         return currentStamina >= Mathf.Max(0f, amount);
     }
 
@@ -258,12 +379,38 @@ public class PlayerStats : MonoBehaviour
             return;
         }
 
-        currentHealth -= amount;
+        if (isPhaseTwoActive && amount > 0.0001f)
+        {
+            int maxL = Mathf.Max(1, phaseTwoMaxLives);
+            phaseTwoPlayerHealth = Mathf.Max(0, phaseTwoPlayerHealth - 1);
+            currentHealth = maxHealth * (phaseTwoPlayerHealth / (float)maxL);
+            currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
+
+            Debug.Log($"<color=red>【階段二扣命】</color> 剩餘命格: {phaseTwoPlayerHealth}/{maxL}");
+            stunVfx?.TriggerDamageFlash();
+            OnDamaged?.Invoke(1f);
+            UpdateUI();
+
+            if (phaseTwoPlayerHealth <= 0 || currentHealth <= 0f)
+                ApplyDeathPresentation();
+
+            return;
+        }
+
+        float applied = amount * incomingDamageMultiplier;
+        if (applied <= 0f)
+        {
+            if (amount > 0.0001f)
+                stunVfx?.TriggerDamageFlash();
+            return;
+        }
+
+        currentHealth -= applied;
         currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
 
         Debug.Log($"<color=red>【受傷成功】</color> HP 剩餘: {currentHealth}");
         stunVfx?.TriggerDamageFlash();
-        OnDamaged?.Invoke(amount);
+        OnDamaged?.Invoke(applied);
 
         if (IsDead)
             ApplyDeathPresentation();
@@ -284,6 +431,8 @@ public class PlayerStats : MonoBehaviour
             return;
 
         invulnerabilityTimer = 0f;
+        if (isPhaseTwoActive)
+            phaseTwoPlayerHealth = 0;
         currentHealth = 0f;
         currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
         isActing = false;
@@ -360,6 +509,9 @@ public class PlayerStats : MonoBehaviour
         if (wasStunned)
             OnStunStateChanged?.Invoke(false);
 
+        isPhaseTwoActive = false;
+        phaseTwoPlayerHealth = Mathf.Max(1, phaseTwoMaxLives);
+
         UpdateUI();
     }
 
@@ -414,6 +566,9 @@ public class PlayerStats : MonoBehaviour
     private void UpdateStamina()
     {
         if (IsDead)
+            return;
+
+        if (isPhaseTwoActive)
             return;
 
         if (isHoldingCloth && !isActing)

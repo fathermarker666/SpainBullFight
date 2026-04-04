@@ -119,6 +119,7 @@ public class BullfightHudController : MonoBehaviour
     private bool hasCachedBullFillColor;
     private bool layoutDirty = true;
     private bool legacyUiDisabled;
+    private bool staminaBarVisible = true;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Bootstrap()
@@ -253,12 +254,25 @@ public class BullfightHudController : MonoBehaviour
         scaler.matchWidthOrHeight = 0.5f;
     }
 
+    public void SetStaminaBarVisible(bool visible)
+    {
+        staminaBarVisible = visible;
+        ApplyStaminaBarVisibility();
+    }
+
+    private void ApplyStaminaBarVisibility()
+    {
+        if (playerStaminaSlider != null)
+            playerStaminaSlider.gameObject.SetActive(staminaBarVisible);
+    }
+
     private void RefreshHudState()
     {
         EnsureGameFlowReference();
         UpdatePhaseDisplay();
         UpdatePhaseTwoHud();
         UpdateTutorialHud();
+        ApplyStaminaBarVisibility();
     }
 
     private static void PlaceSlider(Slider slider, Vector2 offset, Vector2 size)
@@ -522,6 +536,36 @@ public class BullfightHudController : MonoBehaviour
         ConfigureCenteredText(tutorialTitle, tutorialTitlePosition, tutorialTitleFontSize, bullBossTitleColor, FontStyle.Bold, gameFlow.CurrentTutorialTitle);
         ConfigureCenteredText(tutorialInstruction, tutorialInstructionPosition, tutorialInstructionFontSize, bullBossTitleColor, FontStyle.Normal, gameFlow.CurrentTutorialInstruction);
         ConfigureCenteredText(tutorialStatus, tutorialStatusPosition, tutorialStatusFontSize, phaseTwoStatusColor, FontStyle.Italic, gameFlow.CurrentTutorialStatus);
+        SyncHudTutorialPromptTextsFromGameFlow(gameFlow.CurrentTutorialInstruction);
+    }
+
+    private void SyncHudTutorialPromptTextsFromGameFlow(string instructionText)
+    {
+        if (hudCanvasRect == null || string.IsNullOrEmpty(instructionText))
+            return;
+
+        TryAssignTextUnderHierarchy(hudCanvasRect, textTutorialPromptName, instructionText);
+        TryAssignTextUnderHierarchy(hudCanvasRect, textTutorialTextName, instructionText);
+        TryAssignTextUnderHierarchy(hudCanvasRect, textTutorialName, instructionText);
+    }
+
+    private static void TryAssignTextUnderHierarchy(Transform root, string objectName, string text)
+    {
+        if (root == null || string.IsNullOrEmpty(objectName))
+            return;
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform child = root.GetChild(i);
+            if (child.name == objectName)
+            {
+                Text label = child.GetComponent<Text>();
+                if (label != null && label.gameObject.activeInHierarchy)
+                    label.text = text;
+            }
+
+            TryAssignTextUnderHierarchy(child, objectName, text);
+        }
     }
 
     private void UpdatePhaseTwoOverlay()
@@ -558,7 +602,17 @@ public class BullfightHudController : MonoBehaviour
             return;
 
         ConfigureBossInfoText(phaseTwoRound, phaseTwoRoundPosition, $"\u7b2c {gameFlow.PhaseTwoRoundIndex} / {gameFlow.PhaseTwoMaxRounds} \u56de\u5408");
-        ConfigureBossInfoText(phaseTwoScore, phaseTwoScorePosition, $"\u4f60 {gameFlow.PhaseTwoPlayerHitCount} : {gameFlow.PhaseTwoBullHitCount} \u725b");
+        string scoreLine = $"\u4f60 {gameFlow.PhaseTwoPlayerHitCount} : {gameFlow.PhaseTwoBullHitCount} \u725b";
+        if (gameFlow.playerStats != null && gameFlow.playerStats.isPhaseTwoActive)
+        {
+            PlayerStats ps = gameFlow.playerStats;
+            int filled = Mathf.Max(0, ps.phaseTwoPlayerHealth);
+            int empty = Mathf.Max(0, ps.phaseTwoMaxLives - filled);
+            string hearts = new string('\u2665', filled) + new string('\u00b7', empty);
+            scoreLine += $"\nLIFE: {hearts}";
+        }
+
+        ConfigureBossInfoText(phaseTwoScore, phaseTwoScorePosition, scoreLine);
     }
 
     private void UpdatePhaseTwoBars()
@@ -602,6 +656,14 @@ public class BullfightHudController : MonoBehaviour
         if (gameFlow == null)
             return;
 
+        string calibrationKeyLabel = "G";
+        string stabKeyLabel = "E";
+        if (gameFlow.playerController != null)
+        {
+            calibrationKeyLabel = gameFlow.playerController.GetPhaseTwoCalibrationKeyLabel();
+            stabKeyLabel = gameFlow.playerController.GetPhaseTwoStabKeyLabel();
+        }
+
         switch (gameFlow.CurrentPhaseTwoState)
         {
             case BullfightGameFlow.PhaseTwoState.Intro:
@@ -610,12 +672,12 @@ public class BullfightHudController : MonoBehaviour
                 break;
             case BullfightGameFlow.PhaseTwoState.Calibration:
                 titleText = "\u6821\u6e96";
-                subtitleText = "\u6309\u4f4f G \u6821\u6e96";
+                subtitleText = $"\u6309\u4f4f {calibrationKeyLabel} \u6821\u6e96";
                 statusText = $"{Mathf.RoundToInt(gameFlow.PhaseTwoCalibrationProgress * 100f)}%";
                 break;
             case BullfightGameFlow.PhaseTwoState.Standoff:
                 titleText = "\u5c0d\u5cd9";
-                subtitleText = "\u4fdd\u6301\u6c89\u9ed8 15 \u79d2\uff0c\u6216\u6309 E \u6253\u7834\u5c0d\u5cd9";
+                subtitleText = $"\u4fdd\u6301\u6c89\u9ed8 15 \u79d2\uff0c\u6216\u6309 {stabKeyLabel} \u6253\u7834\u5c0d\u5cd9";
                 statusText = $"{Mathf.CeilToInt(gameFlow.PhaseTwoMercyTimeRemaining)}s";
                 break;
             case BullfightGameFlow.PhaseTwoState.RoundPrepare:
@@ -632,7 +694,7 @@ public class BullfightHudController : MonoBehaviour
                     else
                     {
                         subtitleText = string.IsNullOrWhiteSpace(gameFlow.CurrentPhaseTwoReflectionLine)
-                            ? "\u7b49\u5f85\u725b\u9732\u51fa\u7834\u7dbb\uff0c\u7136\u5f8c\u6309 E \u523a\u64ca"
+                            ? $"\u7b49\u5f85\u725b\u9732\u51fa\u7834\u7dbb\uff0c\u7136\u5f8c\u6309 {stabKeyLabel} \u523a\u64ca"
                             : gameFlow.CurrentPhaseTwoReflectionLine;
                         statusText = gameFlow.CurrentRoundHasPerfectAdvantage
                             ? "\u4e0a\u4e00\u64ca\u7559\u4e0b\u7684\u7834\u7dbb\u9084\u5728\u64f4\u5927..."
@@ -641,7 +703,7 @@ public class BullfightHudController : MonoBehaviour
                 }
                 else
                 {
-                    subtitleText = "\u73fe\u5728\u6309 E \u523a\u64ca";
+                    subtitleText = $"\u73fe\u5728\u6309 {stabKeyLabel} \u523a\u64ca";
                     statusText = "\u73fe\u5728\u51fa\u624b";
                 }
                 break;
