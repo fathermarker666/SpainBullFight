@@ -12,6 +12,10 @@ public class BullfightStunVfx : MonoBehaviour
     public float vignetteAlpha = 0.82f;
     public float damageFlashAlpha = 0.42f;
     public float damageFlashFadeSpeed = 4.5f;
+    public float lowHealthThreshold = 0.25f;
+    public float lowHealthPulseSpeed = 1.8f;
+    public float lowHealthOverlayAlpha = 0.18f;
+    public Color lowHealthColor = new Color(0.92f, 0.22f, 0.22f, 1f);
 
     [Header("Dizzy Feel")]
     public float lingerDuration = 1.7f;
@@ -26,6 +30,7 @@ public class BullfightStunVfx : MonoBehaviour
     private Canvas overlayCanvas;
     private Image grayOverlay;
     private Image damageOverlay;
+    private Image lowHealthOverlay;
     private RawImage vignetteOverlay;
     private RectTransform vignetteRect;
     private float currentWeight;
@@ -99,6 +104,13 @@ public class BullfightStunVfx : MonoBehaviour
         damageOverlay.color = new Color(0.9f, 0.1f, 0.1f, 0f);
         StretchFullScreen(damageOverlay.rectTransform);
 
+        GameObject lowHealth = new GameObject("LowHealthOverlay");
+        lowHealth.transform.SetParent(root.transform, false);
+        lowHealthOverlay = lowHealth.AddComponent<Image>();
+        lowHealthOverlay.raycastTarget = false;
+        lowHealthOverlay.color = new Color(lowHealthColor.r, lowHealthColor.g, lowHealthColor.b, 0f);
+        StretchFullScreen(lowHealthOverlay.rectTransform);
+
         GameObject vignette = new GameObject("VignetteOverlay");
         vignette.transform.SetParent(root.transform, false);
         vignetteOverlay = vignette.AddComponent<RawImage>();
@@ -123,6 +135,15 @@ public class BullfightStunVfx : MonoBehaviour
 
         if (damageOverlay != null)
             damageOverlay.color = new Color(0.9f, 0.1f, 0.1f, damageFlashAlpha * damageFlashWeight);
+
+        if (lowHealthOverlay != null)
+        {
+            bool lowHealthActive = playerStats != null && !playerStats.IsDead && playerStats.HealthNormalized <= lowHealthThreshold;
+            float lowHealthPulse = lowHealthActive
+                ? 0.45f + (0.55f * (0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * lowHealthPulseSpeed * Mathf.PI * 2f)))
+                : 0f;
+            lowHealthOverlay.color = new Color(lowHealthColor.r, lowHealthColor.g, lowHealthColor.b, lowHealthOverlayAlpha * lowHealthPulse);
+        }
 
         if (vignetteOverlay != null)
             vignetteOverlay.color = new Color(0f, 0f, 0f, boostedVignetteAlpha * visualWeight);

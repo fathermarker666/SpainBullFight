@@ -144,6 +144,16 @@ public class BullTimingRing : MonoBehaviour
         }
     }
 
+    public void HideRingKeepFeedback()
+    {
+        isActive = false;
+        inputArmed = false;
+        onResolved = null;
+
+        if (ringImage != null)
+            ringImage.enabled = false;
+    }
+
     public void SetRingVisible(bool visible)
     {
         if (ringImage != null)
@@ -194,9 +204,9 @@ public class BullTimingRing : MonoBehaviour
 
         feedbackText.text = result switch
         {
-            "Perfect!" => "\u5b8c\u7f8e",
-            "Good" => "\u6210\u529f",
-            _ => "\u5931\u6557"
+            "Perfect!" => "PERFECT",
+            "Good" => "GOOD",
+            _ => "MISS"
         };
         feedbackText.color = result switch
         {
@@ -206,6 +216,29 @@ public class BullTimingRing : MonoBehaviour
         };
         feedbackText.gameObject.SetActive(true);
         feedbackTimer = 1.5f;
+
+        PlayerStats playerStats = bullAI != null ? bullAI.playerStats : null;
+        if (playerStats != null)
+        {
+            switch (result)
+            {
+                case "Perfect!":
+                    if (currentMode == TimingMode.Capa)
+                        playerStats.PlayGamepadRumble(0.85f, 1f, 0.3f);
+                    else
+                        playerStats.PlayGamepadRumble(0.2f, 0.55f, 0.14f);
+                    break;
+                case "Good":
+                    if (currentMode == TimingMode.Capa)
+                        playerStats.PlayGamepadRumble(0.24f, 0.62f, 0.16f);
+                    else
+                        playerStats.PlayGamepadRumble(0.12f, 0.32f, 0.1f);
+                    break;
+                default:
+                    playerStats.PlayGamepadRumble(0.28f, 0.68f, 0.18f);
+                    break;
+            }
+        }
     }
 
     private void Resolve(string result)
@@ -560,7 +593,7 @@ public class BullTimingRing : MonoBehaviour
                 ringRect.anchoredPosition = anchor;
 
             if (feedbackRect != null)
-                feedbackRect.anchoredPosition = anchor + feedbackScreenOffset;
+                feedbackRect.anchoredPosition = feedbackScreenOffset;
             return;
         }
 
@@ -599,14 +632,26 @@ public class BullTimingRing : MonoBehaviour
         if (HasMissingReferences())
             ResolveReferencesIfNeeded();
 
-        if (bullAI != null && bullAI.playerStats != null && bullAI.playerStats.TryGetFirstPersonCameraPoint(out Vector3 cameraPoint))
+        if (bullAI != null)
         {
-            Transform cameraTransform = referenceCamera != null ? referenceCamera.transform : null;
-            if (cameraTransform != null)
+            Collider bullCollider = bullAI.GetComponent<Collider>();
+            if (bullCollider != null)
             {
-                worldAnchor = cameraPoint + (cameraTransform.forward * 2f) + (cameraTransform.up * 0.3f);
+                Bounds bounds = bullCollider.bounds;
+                worldAnchor = new Vector3(bounds.center.x, bounds.max.y + 0.18f, bounds.center.z);
                 return true;
             }
+
+            Renderer bullRenderer = bullAI.GetComponentInChildren<Renderer>();
+            if (bullRenderer != null)
+            {
+                Bounds bounds = bullRenderer.bounds;
+                worldAnchor = new Vector3(bounds.center.x, bounds.max.y + 0.12f, bounds.center.z);
+                return true;
+            }
+
+            worldAnchor = bullAI.transform.position + Vector3.up * 1.65f;
+            return true;
         }
 
         Transform target = playerController != null ? playerController.transform : bullAI != null ? bullAI.player : null;

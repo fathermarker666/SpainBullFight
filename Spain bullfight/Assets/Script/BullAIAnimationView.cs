@@ -15,7 +15,7 @@ public sealed class BullAIAnimationView
         currentAnimationState = null;
     }
 
-    public void Play(string clipName, float crossFadeDuration)
+    public void Play(string clipName, float crossFadeDuration, bool forceRestart = false)
     {
         if (string.IsNullOrWhiteSpace(clipName))
             return;
@@ -23,7 +23,7 @@ public sealed class BullAIAnimationView
         if (animator == null || animator.runtimeAnimatorController == null)
             return;
 
-        if (currentAnimationState == clipName)
+        if (!forceRestart && currentAnimationState == clipName)
             return;
 
         animator.CrossFade(clipName, crossFadeDuration, 0, 0f);

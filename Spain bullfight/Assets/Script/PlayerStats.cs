@@ -4,6 +4,7 @@ using UnityEngine.UI;
 using UnityEngine.Serialization;
 using UnityEngine.InputSystem;
 using InfimaGames.LowPolyShooterPack;
+using System.Reflection;
 
 public class PlayerStats : MonoBehaviour
 {
@@ -46,6 +47,11 @@ public class PlayerStats : MonoBehaviour
     public float perfectDodgeSpeedMultiplier = 1.25f;
     public float perfectDodgeStaminaRestore = 40f;
 
+    [Header("Look")]
+    [SerializeField] private float lookSensitivityMultiplier = 0.72f;
+    [SerializeField] private float holdingClothLockYawSpeed = 7.5f;
+    [SerializeField] private Vector3 gameplayViewEuler = new Vector3(-10f, 0f, 0f);
+
     [Header("Debug")]
     public bool isStunned;
     public bool isActing;
@@ -69,19 +75,48 @@ public class PlayerStats : MonoBehaviour
     private Character shooterCharacter;
     private BullfightPlayerController playerController;
     private BullfightStunVfx stunVfx;
+    private BullfightHandAnimatorController handAnimatorController;
     private BullAI bullAI;
+    private BullfightGameFlow gameFlow;
     private CameraLook cameraLook;
     private Movement movementComponent;
     private bool shooterGameplayEnabled = true;
     private bool deathPresentationApplied;
     private bool cachedGameplayNearClip;
     private Quaternion cachedCameraLocalRotation = Quaternion.identity;
+    private Quaternion deathPresentationStartRotation = Quaternion.identity;
+    private Quaternion deathPresentationTargetRotation = Quaternion.identity;
     private float cachedGameplayNearClipPlane;
     private bool perfectDodgeBuffActive;
+    private float deathPresentationTimer;
+    private float deathPresentationTurnDelay;
+    private bool clothCameraLockActive;
+    private float rumbleTimer;
+    private float rumbleLowMotor;
+    private float rumbleHighMotor;
+    private bool hasCachedLookSensitivity;
+    private bool lookSensitivityApplied;
+    private Vector2 cachedLookSensitivity = Vector2.one;
+    private FieldInfo cameraLookSensitivityField;
+    private FieldInfo cameraLookRotationCameraField;
+    private FieldInfo cameraLookRotationCharacterField;
 
     [Header("Death Presentation")]
-    [SerializeField] private Vector3 deathCameraEuler = new Vector3(-70f, 0f, 0f);
+    [SerializeField] private Vector3 deathCameraEuler = new Vector3(-48f, 12f, 4f);
+    [SerializeField] private float deathCameraTurnDuration = 1.15f;
+    [SerializeField] private float phaseTwoDeathCameraTurnDelay = 0.28f;
     [SerializeField] private float gameplayNearClipPlane = 0.1f;
+
+    [Header("Gamepad Rumble")]
+    [SerializeField] private float dashRumbleLow = 0.12f;
+    [SerializeField] private float dashRumbleHigh = 0.28f;
+    [SerializeField] private float dashRumbleDuration = 0.08f;
+    [SerializeField] private float damageRumbleLow = 0.28f;
+    [SerializeField] private float damageRumbleHigh = 0.7f;
+    [SerializeField] private float damageRumbleDuration = 0.2f;
+    [SerializeField] private float perfectRumbleLow = 0.16f;
+    [SerializeField] private float perfectRumbleHigh = 0.48f;
+    [SerializeField] private float perfectRumbleDuration = 0.12f;
 
     public bool IsDead => currentHealth <= 0f;
     public bool IsDashing => dashTimer > 0f;
@@ -111,11 +146,13 @@ public class PlayerStats : MonoBehaviour
         _ = GetComponent<BullfightAudioController>() ?? gameObject.AddComponent<BullfightAudioController>();
         _ = GetComponent<BullfightPerfectDodgeVfx>() ?? gameObject.AddComponent<BullfightPerfectDodgeVfx>();
         stunVfx = GetComponent<BullfightStunVfx>();
+        handAnimatorController = GetComponent<BullfightHandAnimatorController>();
         shooterCharacter = GetComponent<Character>();
         movementComponent = GetComponent<Movement>();
         playerController = GetComponent<BullfightPlayerController>();
         playerController?.ConfigureInputActions(bullfightActionsAsset);
         bullAI = FindObjectOfType<BullAI>(true);
+        gameFlow = BullfightSceneCache.FindObject<BullfightGameFlow>();
         CachePresentationReferences();
         StabilizeFirstPersonPresentation();
         UpdateHealthBar();
@@ -140,6 +177,10 @@ public class PlayerStats : MonoBehaviour
         UpdateKnockback();
         UpdatePerfectDodgeBuff();
         UpdateStamina();
+        UpdateHoldingClothCameraLock();
+        EnforceHorizontalOnlyView();
+        UpdateDeathPresentation();
+        UpdateGamepadRumble();
         StabilizeFirstPersonPresentation();
         UpdateUI();
     }
@@ -220,6 +261,7 @@ public class PlayerStats : MonoBehaviour
             dashAnimator.Play(dashAnimationStateName, 0, 0f);
         OnDashPerformed?.Invoke();
         OnEvadePerformed?.Invoke();
+        PlayGamepadRumble(dashRumbleLow, dashRumbleHigh, dashRumbleDuration);
         return true;
     }
 
@@ -232,6 +274,13 @@ public class PlayerStats : MonoBehaviour
             return;
 
         isHoldingCloth = nextValue;
+        // Keep controller active during hold cloth, otherwise look input can get stuck
+        // when rapidly toggling hold/release.
+        SetShooterControlEnabled(shooterGameplayEnabled && !isStunned);
+
+        if (!isHoldingCloth)
+            EnsureGameplayLookUnlocked();
+
         OnHoldingClothChanged?.Invoke(isHoldingCloth);
     }
 
@@ -264,6 +313,7 @@ public class PlayerStats : MonoBehaviour
         Debug.Log($"<color=red>【受傷成功】</color> HP 剩餘: {currentHealth}");
         stunVfx?.TriggerDamageFlash();
         OnDamaged?.Invoke(amount);
+        PlayGamepadRumble(damageRumbleLow, damageRumbleHigh, damageRumbleDuration);
 
         if (IsDead)
             ApplyDeathPresentation();
@@ -278,24 +328,14 @@ public class PlayerStats : MonoBehaviour
         ForceStun();
     }
 
+    public void ForceEndingDeathPresentation()
+    {
+        ForceDeathStateInternal(logDebug: false);
+    }
+
     public void ForceDeathForDebug()
     {
-        if (IsDead)
-            return;
-
-        invulnerabilityTimer = 0f;
-        currentHealth = 0f;
-        currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
-        isActing = false;
-        isStunned = false;
-        SetHoldingCloth(false);
-        StopMovementImmediate();
-        SetShooterControlEnabled(false);
-        stunVfx?.TriggerDamageFlash();
-        OnDamaged?.Invoke(maxHealth);
-        ApplyDeathPresentation();
-        UpdateUI();
-        Debug.Log("Debug shortcut: player health forced to 0.");
+        ForceDeathStateInternal(logDebug: true);
     }
 
     public void RefillStaminaForDebug()
@@ -349,12 +389,17 @@ public class PlayerStats : MonoBehaviour
 
         CachePresentationReferences();
         if (cameraLook != null)
+        {
+            SyncCameraLookStateFromTransforms();
             cameraLook.enabled = true;
+        }
 
         if (firstPersonCamera != null)
-            firstPersonCamera.localRotation = cachedCameraLocalRotation;
+            firstPersonCamera.localRotation = GetGameplayCameraLocalRotation();
 
         deathPresentationApplied = false;
+        deathPresentationTimer = 0f;
+        clothCameraLockActive = false;
         SetShooterControlEnabled(shooterGameplayEnabled);
 
         if (wasStunned)
@@ -367,6 +412,8 @@ public class PlayerStats : MonoBehaviour
     {
         shooterGameplayEnabled = enabledState;
         SetShooterControlEnabled(enabledState && !isStunned);
+        if (enabledState && !isStunned && !isHoldingCloth)
+            EnsureGameplayLookUnlocked();
     }
 
     public void RewardPerfectDodge()
@@ -374,6 +421,19 @@ public class PlayerStats : MonoBehaviour
         AddStamina(perfectDodgeStaminaRestore);
         perfectDodgeBuffTimer = Mathf.Max(perfectDodgeBuffTimer, perfectDodgeDuration);
         ApplyPerfectDodgeBuffState(perfectDodgeBuffTimer > 0f);
+        PlayGamepadRumble(perfectRumbleLow, perfectRumbleHigh, perfectRumbleDuration);
+    }
+
+    public void PlayGamepadRumble(float lowMotor, float highMotor, float duration)
+    {
+        Gamepad gamepad = Gamepad.current;
+        if (gamepad == null)
+            return;
+
+        rumbleLowMotor = Mathf.Max(rumbleLowMotor, Mathf.Clamp01(lowMotor));
+        rumbleHighMotor = Mathf.Max(rumbleHighMotor, Mathf.Clamp01(highMotor));
+        rumbleTimer = Mathf.Max(rumbleTimer, Mathf.Max(0.01f, duration));
+        gamepad.SetMotorSpeeds(rumbleLowMotor, rumbleHighMotor);
     }
 
     private void UpdateStun()
@@ -387,6 +447,7 @@ public class PlayerStats : MonoBehaviour
         {
             isStunned = false;
             SetShooterControlEnabled(shooterGameplayEnabled);
+            EnsureGameplayLookUnlocked();
             OnStunStateChanged?.Invoke(false);
         }
     }
@@ -518,6 +579,34 @@ public class PlayerStats : MonoBehaviour
             healthBar.value = HealthNormalized;
     }
 
+    private void ForceDeathStateInternal(bool logDebug)
+    {
+        bool wasDead = IsDead;
+        bool wasStunned = isStunned;
+
+        invulnerabilityTimer = 0f;
+        currentHealth = 0f;
+        currentStamina = Mathf.Clamp(currentStamina, 0f, maxStamina);
+        isActing = false;
+        isStunned = false;
+        SetHoldingCloth(false);
+        StopMovementImmediate();
+        SetShooterControlEnabled(false);
+
+        if (!wasDead)
+            stunVfx?.TriggerDamageFlash();
+
+        if (wasStunned)
+            OnStunStateChanged?.Invoke(false);
+
+        OnDamaged?.Invoke(maxHealth);
+        ApplyDeathPresentation();
+        UpdateUI();
+
+        if (logDebug)
+            Debug.Log("Debug shortcut: player health forced to 0.");
+    }
+
     private void CachePresentationReferences()
     {
         if (firstPersonRoot == null)
@@ -529,7 +618,7 @@ public class PlayerStats : MonoBehaviour
             if (socketCamera != null)
             {
                 firstPersonCamera = socketCamera;
-                cachedCameraLocalRotation = firstPersonCamera.localRotation;
+                cachedCameraLocalRotation = GetGameplayCameraLocalRotation();
             }
         }
 
@@ -541,6 +630,12 @@ public class PlayerStats : MonoBehaviour
 
         if (cameraLook == null && firstPersonRoot != null)
             cameraLook = firstPersonRoot.GetComponent<CameraLook>();
+
+        if (cameraLook != null)
+        {
+            CacheCameraLookReflection();
+            ApplyLookSensitivityIfNeeded();
+        }
     }
 
     private void StabilizeFirstPersonPresentation()
@@ -572,13 +667,22 @@ public class PlayerStats : MonoBehaviour
             return;
 
         CachePresentationReferences();
+        if (gameFlow == null)
+            gameFlow = BullfightSceneCache.FindObject<BullfightGameFlow>();
+
+        handAnimatorController ??= GetComponent<BullfightHandAnimatorController>();
+        handAnimatorController?.ForceDeathAnimation();
 
         if (cameraLook != null)
             cameraLook.enabled = false;
 
         if (firstPersonCamera != null)
-            firstPersonCamera.localRotation = cachedCameraLocalRotation * Quaternion.Euler(deathCameraEuler);
+            deathPresentationStartRotation = firstPersonCamera.localRotation;
 
+        bool phaseTwoDeath = gameFlow != null && gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseTwo;
+        deathPresentationTargetRotation = cachedCameraLocalRotation * Quaternion.Euler(deathCameraEuler);
+        deathPresentationTurnDelay = phaseTwoDeath ? Mathf.Max(0f, phaseTwoDeathCameraTurnDelay) : 0f;
+        deathPresentationTimer = 0f;
         deathPresentationApplied = true;
     }
 
@@ -655,5 +759,170 @@ public class PlayerStats : MonoBehaviour
         }
 
         return forward.sqrMagnitude > 0.0001f ? forward : Vector3.forward;
+    }
+
+    private void UpdateHoldingClothCameraLock()
+    {
+        CachePresentationReferences();
+
+        bool shouldLock = !IsDead && !isStunned && isHoldingCloth;
+        if (!shouldLock)
+        {
+            if (clothCameraLockActive)
+                ReleaseHoldingClothCameraLock();
+            return;
+        }
+
+        if (bullAI == null)
+            bullAI = FindObjectOfType<BullAI>(true);
+
+        if (bullAI == null)
+            return;
+
+        if (cameraLook != null && cameraLook.enabled)
+            cameraLook.enabled = false;
+
+        clothCameraLockActive = true;
+
+        Vector3 toBull = bullAI.transform.position - transform.position;
+        toBull.y = 0f;
+        if (toBull.sqrMagnitude > 0.0001f)
+        {
+            Quaternion targetYaw = Quaternion.LookRotation(toBull.normalized, Vector3.up);
+            Quaternion nextYaw = Quaternion.Slerp(transform.rotation, targetYaw, Time.deltaTime * holdingClothLockYawSpeed);
+            if (rigidBody != null && !rigidBody.isKinematic)
+                rigidBody.MoveRotation(nextYaw);
+            else
+                transform.rotation = nextYaw;
+        }
+
+        if (firstPersonCamera != null)
+            firstPersonCamera.localRotation = GetGameplayCameraLocalRotation();
+    }
+
+    private void ReleaseHoldingClothCameraLock()
+    {
+        clothCameraLockActive = false;
+
+        if (firstPersonCamera != null)
+            firstPersonCamera.localRotation = GetGameplayCameraLocalRotation();
+
+        if (cameraLook != null && !IsDead && !isStunned)
+        {
+            SyncCameraLookStateFromTransforms();
+            cameraLook.enabled = true;
+        }
+    }
+
+    private void EnforceHorizontalOnlyView()
+    {
+        if (IsDead)
+            return;
+
+        CachePresentationReferences();
+
+        if (firstPersonCamera != null)
+            firstPersonCamera.localRotation = GetGameplayCameraLocalRotation();
+
+        if (cameraLookRotationCameraField != null && cameraLook != null)
+            cameraLookRotationCameraField.SetValue(cameraLook, GetGameplayCameraLocalRotation());
+
+        if (!isHoldingCloth)
+            EnsureGameplayLookUnlocked();
+    }
+
+    private void EnsureGameplayLookUnlocked()
+    {
+        if (cameraLook == null || IsDead || isStunned || !shooterGameplayEnabled)
+            return;
+
+        if (cameraLook.enabled)
+            return;
+
+        clothCameraLockActive = false;
+        SyncCameraLookStateFromTransforms();
+        cameraLook.enabled = true;
+    }
+
+    private void UpdateDeathPresentation()
+    {
+        if (!deathPresentationApplied || firstPersonCamera == null)
+            return;
+
+        deathPresentationTimer += Time.deltaTime;
+        float progress = Mathf.Clamp01((deathPresentationTimer - deathPresentationTurnDelay) / Mathf.Max(0.01f, deathCameraTurnDuration));
+        firstPersonCamera.localRotation = Quaternion.Slerp(deathPresentationStartRotation, deathPresentationTargetRotation, progress);
+    }
+
+    private void UpdateGamepadRumble()
+    {
+        if (rumbleTimer <= 0f)
+            return;
+
+        rumbleTimer = Mathf.Max(0f, rumbleTimer - Time.unscaledDeltaTime);
+        if (rumbleTimer > 0f)
+            return;
+
+        rumbleLowMotor = 0f;
+        rumbleHighMotor = 0f;
+        Gamepad.current?.ResetHaptics();
+    }
+
+    private void CacheCameraLookReflection()
+    {
+        if (cameraLookSensitivityField == null)
+            cameraLookSensitivityField = typeof(CameraLook).GetField("sensitivity", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        if (cameraLookRotationCameraField == null)
+            cameraLookRotationCameraField = typeof(CameraLook).GetField("rotationCamera", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        if (cameraLookRotationCharacterField == null)
+            cameraLookRotationCharacterField = typeof(CameraLook).GetField("rotationCharacter", BindingFlags.Instance | BindingFlags.NonPublic);
+    }
+
+    private void ApplyLookSensitivityIfNeeded()
+    {
+        if (cameraLook == null || cameraLookSensitivityField == null)
+            return;
+
+        if (!hasCachedLookSensitivity)
+        {
+            cachedLookSensitivity = (Vector2)cameraLookSensitivityField.GetValue(cameraLook);
+            hasCachedLookSensitivity = true;
+        }
+
+        if (lookSensitivityApplied)
+            return;
+
+        cameraLookSensitivityField.SetValue(cameraLook, cachedLookSensitivity * Mathf.Max(0.05f, lookSensitivityMultiplier));
+        lookSensitivityApplied = true;
+    }
+
+    private void SyncCameraLookStateFromTransforms()
+    {
+        CacheCameraLookReflection();
+        if (cameraLook == null)
+            return;
+
+        if (cameraLookRotationCameraField != null && firstPersonCamera != null)
+            cameraLookRotationCameraField.SetValue(cameraLook, GetGameplayCameraLocalRotation());
+
+        if (cameraLookRotationCharacterField != null)
+            cameraLookRotationCharacterField.SetValue(cameraLook, transform.localRotation);
+    }
+
+    private Quaternion GetGameplayCameraLocalRotation()
+    {
+        return Quaternion.Euler(gameplayViewEuler);
+    }
+
+    private void OnDisable()
+    {
+        Gamepad.current?.ResetHaptics();
+    }
+
+    private void OnDestroy()
+    {
+        Gamepad.current?.ResetHaptics();
     }
 }

@@ -16,6 +16,9 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
     [SerializeField] private Color dashLineColor = new Color(0.2f, 0.82f, 0.98f, 0.95f);
     [SerializeField] private Color blockedLineColor = new Color(0.55f, 0.55f, 0.55f, 0.8f);
     [SerializeField] private Color capaFillColor = new Color(0.95f, 0.34f, 0.18f, 1f);
+    [SerializeField] private Color attackOutlineColor = new Color(1f, 0.9f, 0.26f, 1f);
+    [SerializeField] private Color dashOutlineColor = new Color(0.24f, 0.8f, 1f, 1f);
+    [SerializeField] private Vector2 readyOutlinePadding = new Vector2(14f, 12f);
 
     private PlayerStats playerStats;
     private BullfightPlayerController playerController;
@@ -25,9 +28,11 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
     private RectTransform fillAreaRect;
     private RectTransform guideRoot;
     private Image staminaFillImage;
+    private Image readinessOutlineImage;
     private Image capaGuideImage;
     private Image attackGuideImage;
     private Image dashGuideImage;
+    private Outline readinessOutlineEffect;
     private Text capaGuideLabel;
     private Text attackGuideLabel;
     private Text dashGuideLabel;
@@ -99,6 +104,36 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
             hasCachedFillColor = true;
         }
 
+        if (readinessOutlineImage == null)
+        {
+            GameObject outlineObject = new GameObject("StaminaReadyOutline", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline));
+            RectTransform rect = outlineObject.GetComponent<RectTransform>();
+            rect.SetParent(staminaSlider.transform, false);
+            rect.SetAsFirstSibling();
+
+            readinessOutlineImage = outlineObject.GetComponent<Image>();
+            readinessOutlineImage.color = Color.white;
+            readinessOutlineImage.raycastTarget = false;
+
+            readinessOutlineEffect = outlineObject.GetComponent<Outline>();
+            readinessOutlineEffect.effectDistance = new Vector2(8f, 8f);
+            readinessOutlineEffect.effectColor = Color.clear;
+        }
+
+        if (readinessOutlineImage != null && staminaSlider != null)
+        {
+            readinessOutlineImage.color = Color.white;
+            RectTransform sliderRect = staminaSlider.GetComponent<RectTransform>();
+            RectTransform outlineRect = readinessOutlineImage.rectTransform;
+            outlineRect.anchorMin = new Vector2(0.5f, 0.5f);
+            outlineRect.anchorMax = new Vector2(0.5f, 0.5f);
+            outlineRect.pivot = new Vector2(0.5f, 0.5f);
+            outlineRect.anchoredPosition = Vector2.zero;
+            outlineRect.sizeDelta = sliderRect != null ? sliderRect.sizeDelta + readyOutlinePadding : new Vector2(340f, 54f);
+            outlineRect.localScale = Vector3.one;
+            outlineRect.localRotation = Quaternion.identity;
+        }
+
         if (capaGuideImage == null)
             capaGuideImage = CreateGuideImage("CapaGuideLine");
 
@@ -125,13 +160,15 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
         if (playerStats == null || staminaSlider == null || fillAreaRect == null || guideRoot == null)
         {
             RestoreFillColor();
+            SetReadyOutlineVisible(false, Color.clear);
             HideAllGuides();
             return;
         }
 
-        if (!playerStats.CanAct() || (gameFlow != null && gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseTwo))
+        if (playerStats.IsDead || playerStats.isStunned || (gameFlow != null && gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseTwo))
         {
             RestoreFillColor();
+            SetReadyOutlineVisible(false, Color.clear);
             HideAllGuides();
             return;
         }
@@ -139,6 +176,7 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
         if (playerStats.isHoldingCloth)
         {
             ApplyCapaFillColor();
+            SetReadyOutlineVisible(false, Color.clear);
             HideGuide(attackGuideImage, attackGuideLabel);
             HideGuide(dashGuideImage, dashGuideLabel);
             UpdateGuide(capaGuideImage, capaGuideLabel, true, playerStats.capaCost, capaLineColor, playerStats.HasEnoughStamina(playerStats.capaCost), "CAPA");
@@ -152,14 +190,33 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
         bool attackVisible = IsAttackPreviewAvailable();
         bool attackAffordable = attackVisible && playerStats.HasEnoughStamina(playerStats.banderillasCost);
         UpdateGuide(attackGuideImage, attackGuideLabel, attackVisible, playerStats.banderillasCost, attackLineColor, attackAffordable, "ATTACK");
+
+        bool dashAffordable = playerStats.HasEnoughStamina(playerStats.dashCost);
+        if (attackAffordable)
+            SetReadyOutlineVisible(true, attackOutlineColor);
+        else if (dashAffordable)
+            SetReadyOutlineVisible(true, dashOutlineColor);
+        else
+            SetReadyOutlineVisible(false, Color.clear);
     }
 
     private bool IsAttackPreviewAvailable()
     {
-        if (bullAI == null || playerStats == null)
+        if (playerStats == null)
             return false;
 
-        return bullAI.CurrentDistanceToPlayer <= bullAI.banderillasRange;
+        if (bullAI != null)
+            return bullAI.CurrentDistanceToPlayer <= bullAI.banderillasRange + 0.75f;
+
+        Transform bullTarget = playerController != null ? playerController.GetBullTarget() : null;
+        if (bullTarget == null)
+            return false;
+
+        Vector3 playerPosition = playerStats.transform.position;
+        Vector3 bullPosition = bullTarget.position;
+        playerPosition.y = 0f;
+        bullPosition.y = 0f;
+        return Vector3.Distance(playerPosition, bullPosition) <= 5.25f;
     }
 
     private void UpdateGuide(Image guideImage, Text guideLabel, bool visible, float cost, Color readyColor, bool hasEnoughStamina, string labelText)
@@ -229,6 +286,16 @@ public class BullfightStaminaPreviewUI : MonoBehaviour
     {
         if (staminaFillImage != null && hasCachedFillColor)
             staminaFillImage.color = cachedFillColor;
+    }
+
+    private void SetReadyOutlineVisible(bool visible, Color color)
+    {
+        if (readinessOutlineImage == null || readinessOutlineEffect == null)
+            return;
+
+        readinessOutlineImage.enabled = visible;
+        readinessOutlineEffect.enabled = visible;
+        readinessOutlineEffect.effectColor = visible ? color : Color.clear;
     }
 
     private Image CreateGuideImage(string objectName)

@@ -517,7 +517,7 @@ public class BullAI : MonoBehaviour
                 chargeResultAllowsDamage = false;
                 chargeMissCommitActive = false;
                 if (timingScript != null)
-                    timingScript.HideImmediate();
+                    timingScript.HideRingKeepFeedback();
                 playerStats.GrantInvulnerability(successfulDodgeInvulnerability);
                 if (result == "Perfect!")
                     playerStats.RewardPerfectDodge();
@@ -558,14 +558,14 @@ public class BullAI : MonoBehaviour
     {
         CancelAutoAttackAndReschedule();
         currentState = BullState.Hurt; ResetChargeQteState(); pendingCircleReset = false; hasRoamTarget = false; stateTimer = hurtFlinchDuration; attackRecoveryTimer = Mathf.Max(attackRecoveryTimer, 0.45f); HideChargeTelegraph();
-        if (timingScript != null) timingScript.HideImmediate();
+        if (timingScript != null) timingScript.HideRingKeepFeedback();
     }
 
     private void EnterFatigue(bool circleAfterCharge)
     {
         CancelAutoAttackAndReschedule();
         currentState = BullState.Fatigued; ResetChargeQteState(); pendingCircleReset = circleAfterCharge; hasRoamTarget = false; stateTimer = tutorialControlActive && tutorialChargeSequenceActive ? 0.45f : UnityEngine.Random.Range(fatigueDurationRange.x, fatigueDurationRange.y); attackRecoveryTimer = tutorialControlActive && tutorialChargeSequenceActive ? 0.3f : attackRecoveryDuration; HideChargeTelegraph();
-        if (timingScript != null) timingScript.HideImmediate();
+        if (timingScript != null) timingScript.HideRingKeepFeedback();
     }
 
     private void EnterImpact(bool circleAfterCharge)
@@ -576,7 +576,7 @@ public class BullAI : MonoBehaviour
         stateTimer = impactDuration;
         HideChargeTelegraph();
         if (timingScript != null)
-            timingScript.HideImmediate();
+            timingScript.HideRingKeepFeedback();
     }
 
     private void StartCharge(bool damagingCharge, string reason)
@@ -604,6 +604,12 @@ public class BullAI : MonoBehaviour
         {
             timingScript.HideImmediate();
             timingScript.ResetTimingWindow();
+            if (gameFlow != null &&
+                (gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseZeroTutorial ||
+                 gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseOne))
+            {
+                timingScript.SetTimingWindow(0.5f, 0.75f);
+            }
         }
 
         bool usesExternallyDrivenTutorialTiming = tutorialControlActive && tutorialChargeSequenceActive && tutorialChargeUsesTiming;
@@ -624,9 +630,11 @@ public class BullAI : MonoBehaviour
         canDamagePlayerThisCharge = true;
         SetDashSuppressed(false);
         if (timingScript != null)
-            timingScript.HideImmediate();
+            timingScript.HideRingKeepFeedback();
 
-        float remainingCommitDistance = Mathf.Max(MissCommitDistance, hitDistance + chargeImpactStopBuffer);
+        float remainingCommitDistance = Mathf.Max(
+            Mathf.Max(MissCommitDistance, hitDistance + chargeImpactStopBuffer),
+            GetChargeThreatDistance(plannedChargeDistance) * 0.4f);
         float chargeTravelDistance = HorizontalDistance(chargeStartPosition, GetCurrentBullPosition());
         plannedChargeDistance = Mathf.Max(plannedChargeDistance, chargeTravelDistance + remainingCommitDistance);
         stateTimer = Mathf.Max(stateTimer, remainingCommitDistance / Mathf.Max(0.01f, GetChargeSpeed()));
@@ -803,14 +811,20 @@ public class BullAI : MonoBehaviour
         Vector3 currentPosition = GetCurrentBullPosition(), origin = currentPosition + Vector3.up * groundProbeHeight;
         RaycastHit[] hits = Physics.RaycastAll(origin, Vector3.down, groundProbeHeight * 2f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
         if (hits == null || hits.Length == 0) return;
-        float closestDistance = float.MaxValue, targetY = currentPosition.y; bool foundGround = false;
+        float referenceGroundY = spawnManager != null ? spawnManager.ArenaCenter.y : currentPosition.y;
+        float bestHeightDelta = float.MaxValue, closestDistance = float.MaxValue, targetY = currentPosition.y;
+        bool foundGround = false;
         foreach (RaycastHit hit in hits)
         {
             if (hit.collider == null) continue;
             Transform hitTransform = hit.collider.transform;
             if (hitTransform == transform || hitTransform.IsChildOf(transform) || hit.normal.y < 0.2f) continue;
-            if (hit.distance < closestDistance)
+            float heightDelta = Mathf.Abs(hit.point.y - referenceGroundY);
+            bool isBetterHeight = heightDelta < bestHeightDelta - 0.0001f;
+            bool isTieButCloser = Mathf.Abs(heightDelta - bestHeightDelta) <= 0.0001f && hit.distance < closestDistance;
+            if (isBetterHeight || isTieButCloser)
             {
+                bestHeightDelta = heightDelta;
                 closestDistance = hit.distance;
                 targetY = hit.point.y + visualGroundOffset;
                 foundGround = true;
@@ -843,7 +857,13 @@ public class BullAI : MonoBehaviour
     public void PlayPhaseTwoAttackFollowThrough()
     {
         StopBullMotionImmediate();
-        PlayAnimationClip(AnimationAttackForward, 0.06f);
+        PlayAnimationClip(AnimationRunForwardInPlace, 0.06f);
+    }
+
+    public void PlayPhaseTwoWalkLoop()
+    {
+        StopBullMotionImmediate();
+        PlayAnimationClip(AnimationTrotForwardInPlace, 0.08f);
     }
 
     public void PlayPhaseTwoHitReaction(bool wasPerfect)
@@ -856,6 +876,33 @@ public class BullAI : MonoBehaviour
     {
         StopBullMotionImmediate();
         PlayAnimationClip(AnimationIdleThreat, 0.1f);
+    }
+
+    public void SetPhaseTwoPose(Vector3 position, Quaternion rotation, bool snapToGround = true)
+    {
+        StopBullMotionImmediate();
+
+        if (bullRigidbody != null)
+        {
+            bullRigidbody.position = position;
+            bullRigidbody.rotation = rotation;
+        }
+
+        transform.SetPositionAndRotation(position, rotation);
+
+        if (!snapToGround)
+            return;
+
+        QueueMovePosition(position);
+        QueueMoveRotation(rotation);
+        SnapToGround(true);
+        CommitQueuedPoseImmediate();
+    }
+
+    public void ForceSnapToGround()
+    {
+        SnapToGround(true);
+        CommitQueuedPoseImmediate();
     }
 
     public void SetTutorialControl(bool active)
@@ -1054,13 +1101,13 @@ public class BullAI : MonoBehaviour
         }
     }
 
-    private void PlayAnimationClip(string clipName, float crossFadeDuration)
+    private void PlayAnimationClip(string clipName, float crossFadeDuration, bool forceRestart = false)
     {
         if (animator == null)
             animator = GetComponent<Animator>();
 
         animationView ??= new BullAIAnimationView(animator);
-        animationView.Play(clipName, crossFadeDuration);
+        animationView.Play(clipName, crossFadeDuration, forceRestart);
     }
 
     public void TryHitPlayerFromCharge(Collider other)
@@ -1278,6 +1325,13 @@ public class BullAI : MonoBehaviour
         {
             timingScript.HideImmediate();
             timingScript.ResetTimingWindow();
+            if (gameFlow != null &&
+                (gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseZeroTutorial ||
+                 gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseOne))
+            {
+                timingScript.SetTimingWindow(0.5f, 0.75f);
+            }
+
             if (!externalControl)
             {
                 timingScript.StartTiming(BullTimingRing.TimingMode.Capa, HandleChargeTimingResult, showRing, armInput);

@@ -14,6 +14,7 @@ public class BullfightSpawnManager : MonoBehaviour
     public float groundProbeHeight = 12f;
     public float fallThresholdY = -2f;
     public float resetHeightOffset = 0.1f;
+    public float bullResetHeightOffset = 0.02f;
 
     [Header("Arena Safety")]
     public float floorThicknessExtra = 4f;
@@ -109,7 +110,11 @@ public class BullfightSpawnManager : MonoBehaviour
         if (bullRigidbody == null)
             bullRigidbody = bullAI.GetComponent<Rigidbody>();
 
-        Vector3 targetPosition = bullSpawnPoint.position + Vector3.up * resetHeightOffset;
+        Vector3 groundedSpawn = SampleGround(bullSpawnPoint.position, bullAI.transform);
+        bullSpawnPoint.position = groundedSpawn;
+
+        float bullLift = bullResetHeightOffset > 0f ? bullResetHeightOffset : 0.02f;
+        Vector3 targetPosition = groundedSpawn + Vector3.up * Mathf.Clamp(bullLift, 0f, 0.08f);
         Quaternion targetRotation = bullSpawnPoint.rotation;
 
         if (bullRigidbody != null)
@@ -126,6 +131,7 @@ public class BullfightSpawnManager : MonoBehaviour
 
         bullAI.transform.SetPositionAndRotation(targetPosition, targetRotation);
         bullAI.ResetCombatState();
+        bullAI.ForceSnapToGround();
     }
 
     public void ResetBullForPhaseTwoRound(float frontDistance = 2.2f, float sideOffset = 0f)
@@ -329,7 +335,11 @@ public class BullfightSpawnManager : MonoBehaviour
         Vector3 origin = preferredPosition + Vector3.up * groundProbeHeight;
         float maxDistance = groundProbeHeight * 2f;
         RaycastHit[] hits = Physics.RaycastAll(origin, Vector3.down, maxDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore);
+        float referenceGroundY = arenaFloorCollider != null
+            ? arenaFloorCollider.bounds.max.y
+            : (playerSpawnPoint != null ? playerSpawnPoint.position.y : preferredPosition.y);
 
+        float bestHeightDelta = float.MaxValue;
         float closestDistance = float.MaxValue;
         Vector3 bestPoint = preferredPosition;
         bool found = false;
@@ -346,8 +356,12 @@ public class BullfightSpawnManager : MonoBehaviour
             if (hit.normal.y < 0.2f)
                 continue;
 
-            if (hit.distance < closestDistance)
+            float heightDelta = Mathf.Abs(hit.point.y - referenceGroundY);
+            bool isBetterHeight = heightDelta < bestHeightDelta - 0.0001f;
+            bool isTieButCloser = Mathf.Abs(heightDelta - bestHeightDelta) <= 0.0001f && hit.distance < closestDistance;
+            if (isBetterHeight || isTieButCloser)
             {
+                bestHeightDelta = heightDelta;
                 closestDistance = hit.distance;
                 bestPoint = hit.point;
                 found = true;

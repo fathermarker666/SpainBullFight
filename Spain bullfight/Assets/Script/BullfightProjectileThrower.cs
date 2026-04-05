@@ -218,7 +218,9 @@ public class BullfightProjectileThrower : MonoBehaviour
 
     private bool IsPhaseOneDirectDamageActive()
     {
-        return gameFlow == null || gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseOne;
+        return gameFlow == null ||
+               gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseOne ||
+               gameFlow.IsTutorialAttackStepActive;
     }
 
     private Vector3 ResolveThrowDirection(Vector3 spawnPosition)

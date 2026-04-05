@@ -339,9 +339,22 @@ public class BullfightHandAnimatorController : MonoBehaviour
     private void HandleDamaged(float _)
     {
         if (playerStats != null && playerStats.IsDead)
+        {
+            ForceDeathAnimation();
             return;
+        }
 
         PlayTransient(HandState.Hurt);
+    }
+
+    public void ForceDeathAnimation()
+    {
+        if (handAnimator == null || !bindingsCached)
+            return;
+
+        transientState = null;
+        transientStateUntil = -1f;
+        SwitchState(HandState.Death, restart: true);
     }
 
     private void PlayTransient(HandState state)

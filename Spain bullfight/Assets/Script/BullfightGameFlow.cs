@@ -15,10 +15,13 @@ public class BullfightGameFlow : MonoBehaviour
     {
         None,
         Intro,
+        Move,
+        Look,
         HoldCloth,
         Capa,
         Dash,
         Attack,
+        Rules,
         Complete
     }
 
@@ -67,28 +70,42 @@ public class BullfightGameFlow : MonoBehaviour
     public float perfectTelegraphBonus = 0.2f;
     public float phaseTwoBullFrontDistance = 2.2f;
     public float phaseTwoBullSideOffset = 0f;
+    public float phaseTwoRoundSideOffset = 1.2f;
+    public float phaseTwoResolveWalkDelay = 0.45f;
+    public float phaseTwoResolveWalkDuration = 1.2f;
+    public float phaseTwoResolveWalkFrontDistance = 2.55f;
+    public float phaseTwoShuttleRunSpeed = 2.7f;
+    public float phaseTwoMissChargeDuration = 0.85f;
+    public float phaseTwoMissPauseDuration = 3f;
     public float phaseTwoAmbientIntensity = 0.65f;
     public float phaseTwoDirectionalLightMultiplier = 0.8f;
     [TextArea(2, 3)] public string[] phaseTwoReflectionLines =
     {
-        "The arena grows quieter each round.",
-        "There has to be more than one ending.",
-        "Steel settles arguments too quickly.",
-        "Stand your ground before you strike.",
-        "Only one of you leaves this ritual unchanged."
+        "\u4f60\u773c\u524d\u7684\uff0c\u771f\u7684\u662f\u6575\u4eba\u55ce\uff1f",
+        "\u5982\u679c\u7260\u53ea\u662f\u60f3\u6d3b\u4e0b\u53bb\uff0c\u8ab0\u53c8\u5148\u8209\u8d77\u4e86\u6b66\u5668\uff1f",
+        "\u89c0\u773e\u60f3\u770b\u7684\uff0c\u662f\u52dd\u5229\uff0c\u9084\u662f\u9bae\u8840\uff1f",
+        "\u9019\u4e00\u64ca\u82e5\u6210\u529f\uff0c\u4f60\u771f\u7684\u6703\u6bd4\u8f03\u8f15\u9b06\u55ce\uff1f",
+        "\u5982\u679c\u4f60\u5011\u90fd\u4e0d\u51fa\u624b\uff0c\u8ab0\u624d\u6709\u8cc7\u683c\u8aaa\u9019\u5834\u6c7a\u9b25\u5fc5\u9808\u7e7c\u7e8c\uff1f"
     };
 
     [Header("Tutorial")]
     public float tutorialIntroDuration = 2.25f;
+    public float tutorialMoveDuration = 4.1f;
+    public float tutorialLookDuration = 3.9f;
     public float tutorialHoldDuration = 0.5f;
     public float tutorialTransitionDelay = 0.9f;
     public float tutorialCompleteDelay = 1.5f;
+    public float tutorialRulesMinReadDuration = 3f;
     public float tutorialCapaWindowDuration = 1.35f;
     public float tutorialChargeFrontDistance = 3.6f;
     public float tutorialDashFrontDistance = 3.4f;
     public float tutorialAttackFrontDistance = 3f;
     public float tutorialAttackResolveDelay = 1.1f;
     public float tutorialBullSideOffset = 0f;
+    public int tutorialHoldRequiredCount = 3;
+    public int tutorialDashRequiredCount = 3;
+    public int tutorialAttackRequiredCount = 3;
+    public float phaseOneGroundingSnapDuration = 1.2f;
 
     [Header("Debug Shortcuts")]
     public bool enableDebugShortcuts = true;
@@ -116,6 +133,12 @@ public class BullfightGameFlow : MonoBehaviour
     public float PhaseTwoCalibrationProgress => calibrationHoldDuration <= 0f ? 1f : Mathf.Clamp01(calibrationHoldTimer / calibrationHoldDuration);
     public float PhaseTwoRoundStanceProgress => GetRoundStanceProgress();
     public float PhaseTwoMercyTimeRemaining => Mathf.Max(0f, mercyEndingDelay - mercyTimer);
+    public bool IsPhaseTwoMissPauseActive => currentPhase == GamePhase.PhaseTwo &&
+                                             phaseTwoState == PhaseTwoState.RoundResolve &&
+                                             phaseTwoResolveWasMiss &&
+                                             phaseTwoStateElapsed >= phaseTwoMissChargeDuration &&
+                                             phaseTwoStateElapsed < phaseTwoMissChargeDuration + phaseTwoMissPauseDuration;
+    public string CurrentPhaseTwoResolveNarration => IsPhaseTwoMissPauseActive ? phaseTwoResolveNarrationLine : string.Empty;
     public bool IsPhaseTwoRoundStanceConfirming => currentPhase == GamePhase.PhaseTwo &&
                                                    phaseTwoState == PhaseTwoState.RoundPrepare &&
                                                    phaseTwoStateElapsed < GetRoundStanceDuration();
@@ -126,13 +149,16 @@ public class BullfightGameFlow : MonoBehaviour
     public bool IsTutorialActive => currentPhase == GamePhase.PhaseZeroTutorial;
     public bool IsTutorialCapaStepActive => currentPhase == GamePhase.PhaseZeroTutorial && tutorialState == TutorialState.Capa;
     public bool IsTutorialAttackStepActive => currentPhase == GamePhase.PhaseZeroTutorial && tutorialState == TutorialState.Attack;
+    public bool IsTutorialRulesStep => currentPhase == GamePhase.PhaseZeroTutorial && tutorialState == TutorialState.Rules;
     public string CurrentTutorialTitle => GetTutorialTitle();
     public string CurrentTutorialInstruction => GetTutorialInstruction();
     public string CurrentTutorialStatus => GetTutorialStatus();
+    public string CurrentTutorialBody => GetTutorialBody();
 
     private PhaseTwoState phaseTwoState = PhaseTwoState.None;
     private TutorialState tutorialState = TutorialState.None;
     private TutorialState queuedTutorialState = TutorialState.None;
+    private BullBleedVfx bullBleedVfx;
     private float mercyTimer;
     private float bullDeathTimer;
     private float phaseTwoStateElapsed;
@@ -145,22 +171,39 @@ public class BullfightGameFlow : MonoBehaviour
     private float tutorialDashStepStartedAt = -999f;
     private float tutorialAttackResolveAt = -1f;
     private float tutorialAttackHealthAtStepStart;
+    private float tutorialMoveProgress;
+    private float tutorialLookProgress;
+    private float phaseOneGroundingSnapTimer;
     private int bullHitCount;
     private int playerHitCount;
     private int phaseTwoRoundIndex;
+    private int tutorialHoldSuccessCount;
+    private int tutorialDashSuccessCount;
+    private int tutorialAttackSuccessCount;
     private bool phaseTwoCalibrated;
     private bool phaseTwoHasCommittedAttack;
     private bool nextRoundHasPerfectAdvantage;
     private bool currentRoundHasPerfectAdvantage;
+    private int phaseTwoRoundSideSign = 1;
     private bool phaseTwoPrepareTelegraphStarted;
     private bool phaseTwoResolveBullResetApplied;
+    private bool phaseTwoResolveWalkInitialized;
+    private bool phaseTwoResolveWasMiss;
+    private bool phaseTwoResolveMissImpactApplied;
+    private bool phaseTwoResolveCompleted;
+    private int phaseTwoResolveShuttleSegment;
     private bool tutorialChargeStarted;
     private bool tutorialCapaQteStarted;
     private bool tutorialCapaQteResolved;
+    private bool tutorialHoldRegisteredThisAttempt;
     private bool tutorialAttackPerformed;
     private bool tutorialAttackCleanHitRegistered;
     private string lastPhaseTwoResult = string.Empty;
     private string tutorialFeedbackText = string.Empty;
+    private string phaseTwoResolveNarrationLine = string.Empty;
+    private Vector3 phaseTwoResolveCenterPoint;
+    private Vector3 phaseTwoResolveLeftPoint;
+    private Vector3 phaseTwoResolveRightPoint;
     private PlayerStats subscribedTutorialPlayerStats;
     private BullAI subscribedTutorialBullAI;
 
@@ -249,6 +292,7 @@ public class BullfightGameFlow : MonoBehaviour
     {
         ResolveReferencesIfNeeded();
         ResetState();
+        bullBleedVfx?.ClearBleeds();
         PrepareEncounterForTutorial(tutorialChargeFrontDistance);
         tutorialFeedbackText = string.Empty;
         EnterTutorialState(TutorialState.Intro);
@@ -290,7 +334,13 @@ public class BullfightGameFlow : MonoBehaviour
         {
             case TutorialState.Intro:
                 if (tutorialStateElapsed >= tutorialIntroDuration)
-                    EnterTutorialState(TutorialState.HoldCloth);
+                    EnterTutorialState(TutorialState.Move);
+                break;
+            case TutorialState.Move:
+                UpdateTutorialMove();
+                break;
+            case TutorialState.Look:
+                UpdateTutorialLook();
                 break;
             case TutorialState.HoldCloth:
                 UpdateTutorialHoldCloth();
@@ -304,6 +354,9 @@ public class BullfightGameFlow : MonoBehaviour
             case TutorialState.Attack:
                 UpdateTutorialAttack();
                 break;
+            case TutorialState.Rules:
+                UpdateTutorialRules();
+                break;
             case TutorialState.Complete:
                 if (tutorialStateElapsed >= tutorialCompleteDelay)
                     StartPhaseOneFromTutorial();
@@ -311,17 +364,56 @@ public class BullfightGameFlow : MonoBehaviour
         }
     }
 
+    private void UpdateTutorialMove()
+    {
+        if (playerController == null)
+            return;
+
+        tutorialMoveProgress += playerController.GetMovementInputMagnitude() >= 0.35f
+            ? Time.unscaledDeltaTime
+            : -Time.unscaledDeltaTime * 0.35f;
+        tutorialMoveProgress = Mathf.Clamp(tutorialMoveProgress, 0f, tutorialMoveDuration);
+
+        if (tutorialMoveProgress >= tutorialMoveDuration)
+            QueueTutorialState(TutorialState.Look, 0.25f, "\u79fb\u52d5\u8a13\u7df4\u5b8c\u6210\uff0c\u63a5\u4e0b\u4f86\u8acb\u8f49\u52d5\u8996\u89d2\u89c0\u5bdf\u9b25\u725b\u5834\u3002");
+    }
+
+    private void UpdateTutorialLook()
+    {
+        if (playerController == null)
+            return;
+
+        tutorialLookProgress += playerController.GetLookInputMagnitude() >= 0.18f
+            ? Time.unscaledDeltaTime
+            : -Time.unscaledDeltaTime * 0.35f;
+        tutorialLookProgress = Mathf.Clamp(tutorialLookProgress, 0f, tutorialLookDuration);
+
+        if (tutorialLookProgress >= tutorialLookDuration)
+            QueueTutorialState(TutorialState.HoldCloth, 0.25f, "\u8996\u89d2\u8a13\u7df4\u5b8c\u6210\uff0c\u73fe\u5728\u958b\u59cb\u6301\u5e03\u6559\u5b78\u3002");
+    }
+
     private void UpdateTutorialHoldCloth()
     {
         if (playerStats == null)
             return;
 
-        tutorialHoldTimer = playerStats.isHoldingCloth
-            ? tutorialHoldTimer + Time.unscaledDeltaTime
-            : 0f;
+        if (playerStats.isHoldingCloth)
+        {
+            tutorialHoldTimer += Time.unscaledDeltaTime;
+            if (!tutorialHoldRegisteredThisAttempt && tutorialHoldTimer >= tutorialHoldDuration)
+            {
+                tutorialHoldRegisteredThisAttempt = true;
+                tutorialHoldSuccessCount++;
+            }
+        }
+        else
+        {
+            tutorialHoldTimer = 0f;
+            tutorialHoldRegisteredThisAttempt = false;
+        }
 
-        if (tutorialHoldTimer >= tutorialHoldDuration)
-            QueueTutorialState(TutorialState.Capa, 0.4f, "\u5f88\u597d\uff0c\u63a5\u4e0b\u4f86\u7528\u7d05\u5e03\u628a\u725b\u7684\u885d\u649e\u5e36\u958b\u3002");
+        if (tutorialHoldSuccessCount >= Mathf.Max(1, tutorialHoldRequiredCount))
+            QueueTutorialState(TutorialState.Capa, 0.4f, "\u5f88\u597d\uff0c\u63a5\u4e0b\u4f86\u8981\u4ee5 Perfect \u5b8c\u6210\u4e00\u6b21\u63ee\u5e03\u3002");
     }
 
     private void UpdateTutorialCapa()
@@ -342,6 +434,7 @@ public class BullfightGameFlow : MonoBehaviour
             tutorialCapaWindowTimer = 0f;
             timingRing?.HideImmediate();
             timingRing?.ResetTimingWindow();
+            timingRing?.SetTimingWindow(0.5f, 0.75f);
             timingRing?.StartTiming(BullTimingRing.TimingMode.Capa, HandleTutorialCapaTimingResult);
             timingRing?.SetTelegraphProgress(0f);
         }
@@ -361,17 +454,14 @@ public class BullfightGameFlow : MonoBehaviour
         if (bullAI == null || !bullAI.IsTutorialChargeSequenceComplete)
             return;
 
-        bool success = bullAI.TutorialChargeResult == "Good" || bullAI.TutorialChargeResult == "Perfect!";
+        bool success = bullAI.TutorialChargeResult == "Perfect!";
         if (success)
         {
-            string message = bullAI.TutorialChargeResult == "Perfect!"
-                ? "\u63ee\u5e03\u5b8c\u6210\uff0c\u9019\u6b21\u5f88\u4f86\u5f97\u5e72\u6de8\u3002"
-                : "\u63ee\u5e03\u6210\u529f\uff0c\u4f60\u5df2\u7d93\u628a\u885d\u649e\u5e36\u958b\u4e86\u3002";
-            QueueTutorialState(TutorialState.Dash, tutorialTransitionDelay, message);
+            QueueTutorialState(TutorialState.Dash, tutorialTransitionDelay, "\u63ee\u5e03 Perfect\uff0c\u73fe\u5728\u9023\u7e8c\u5b8c\u6210 3 \u6b21\u9583\u907f\u3002");
             return;
         }
 
-        QueueTutorialState(TutorialState.Capa, tutorialTransitionDelay, "\u6c92\u63ee\u4e2d\u6642\u6a5f\uff0c\u518d\u6309\u4e00\u6b21 Space \u8a66\u8a66\u770b\u3002");
+        QueueTutorialState(TutorialState.Capa, tutorialTransitionDelay, "\u9019\u6b21\u4e0d\u662f Perfect\uff0c\u518d\u4f86\u4e00\u6b21\u3002");
     }
 
     private void UpdateTutorialDash()
@@ -391,11 +481,18 @@ public class BullfightGameFlow : MonoBehaviour
         bool success = dashedThisAttempt && !bullAI.DidTutorialChargeHitPlayer;
         if (success)
         {
-            QueueTutorialState(TutorialState.Attack, tutorialTransitionDelay, "\u9583\u5f97\u5f88\u597d\uff0c\u73fe\u5728\u8fd1\u8eab\u653b\u64ca\u5427\u3002");
+            tutorialDashSuccessCount++;
+            if (tutorialDashSuccessCount >= Mathf.Max(1, tutorialDashRequiredCount))
+            {
+                QueueTutorialState(TutorialState.Attack, tutorialTransitionDelay, "\u9583\u907f\u5b8c\u6210\uff0c\u73fe\u5728\u9023\u7e8c 3 \u6b21\u6210\u529f\u653b\u64ca\u3002");
+                return;
+            }
+
+            QueueTutorialState(TutorialState.Dash, tutorialTransitionDelay, $"\u9583\u907f\u6210\u529f {tutorialDashSuccessCount}/{Mathf.Max(1, tutorialDashRequiredCount)}\uff0c\u518d\u4f86\u4e00\u6b21\u3002");
             return;
         }
 
-        QueueTutorialState(TutorialState.Dash, tutorialTransitionDelay, "\u9583\u907f\u6642\u6a5f\u4e0d\u5c0d\uff0c\u518d\u7528 Ctrl \u8a66\u4e00\u6b21\u3002");
+        QueueTutorialState(TutorialState.Dash, tutorialTransitionDelay, "\u9583\u907f\u6642\u6a5f\u4e0d\u5c0d\uff0c\u518d\u4f86\u4e00\u6b21\u3002");
     }
 
     private void UpdateTutorialAttack()
@@ -414,7 +511,14 @@ public class BullfightGameFlow : MonoBehaviour
         if (tutorialAttackCleanHitRegistered ||
             (bullStats != null && bullStats.currentHealth < tutorialAttackHealthAtStepStart - 0.01f))
         {
-            QueueTutorialState(TutorialState.Complete, tutorialTransitionDelay, "\u547d\u4e2d\u78ba\u8a8d\uff0c\u6e96\u5099\u9032\u5165\u6b63\u5f0f\u6230\u9b25\u3002");
+            tutorialAttackSuccessCount++;
+            if (tutorialAttackSuccessCount >= Mathf.Max(1, tutorialAttackRequiredCount))
+            {
+                QueueTutorialState(TutorialState.Rules, tutorialTransitionDelay, "\u57fa\u790e\u64cd\u4f5c\u5b8c\u6210\uff0c\u4e0a\u5834\u524d\u8acb\u5148\u8b80\u5b8c\u6240\u6709\u898f\u5247\u3002");
+                return;
+            }
+
+            QueueTutorialState(TutorialState.Attack, tutorialTransitionDelay, $"\u653b\u64ca\u6210\u529f {tutorialAttackSuccessCount}/{Mathf.Max(1, tutorialAttackRequiredCount)}\uff0c\u518d\u88dc\u4e00\u64ca\u3002");
             return;
         }
 
@@ -426,7 +530,16 @@ public class BullfightGameFlow : MonoBehaviour
         }
 
         if (tutorialAttackResolveAt >= 0f && Time.time >= tutorialAttackResolveAt)
-            QueueTutorialState(TutorialState.Attack, tutorialTransitionDelay, "\u8981\u96e2\u725b\u66f4\u8fd1\uff0c\u4e26\u78ba\u5be6\u547d\u4e2d\uff0c\u9019\u6a23\u624d\u7b97 CLEAN\u3002");
+            QueueTutorialState(TutorialState.Attack, tutorialTransitionDelay, "\u8981\u5728\u6709\u6548\u8ddd\u96e2\u5167\u6210\u529f\u547d\u4e2d\uff0c\u518d\u8a66\u4e00\u6b21\u3002");
+    }
+
+    private void UpdateTutorialRules()
+    {
+        if (tutorialStateElapsed < tutorialRulesMinReadDuration)
+            return;
+
+        if (playerController != null && playerController.WasTutorialAdvancePressedThisFrame())
+            QueueTutorialState(TutorialState.Complete, 0.2f, "\u6e96\u5099\u9032\u5165\u6b63\u5f0f\u6230\u9b25\u3002");
     }
 
     private void QueueTutorialState(TutorialState nextState, float delay, string feedback)
@@ -447,9 +560,12 @@ public class BullfightGameFlow : MonoBehaviour
         tutorialStateElapsed = 0f;
         tutorialHoldTimer = 0f;
         tutorialCapaWindowTimer = 0f;
+        tutorialMoveProgress = 0f;
+        tutorialLookProgress = 0f;
         tutorialChargeStarted = false;
         tutorialCapaQteStarted = false;
         tutorialCapaQteResolved = false;
+        tutorialHoldRegisteredThisAttempt = false;
         tutorialDashStepStartedAt = -999f;
         tutorialAttackResolveAt = -1f;
         tutorialAttackPerformed = false;
@@ -518,7 +634,9 @@ public class BullfightGameFlow : MonoBehaviour
         spawnManager?.ResetPlayerToSpawn();
         spawnManager?.ResetBullToSpawn();
         bullAI?.ResetCombatState();
+        bullBleedVfx?.ClearBleeds();
         currentPhase = GamePhase.PhaseOne;
+        phaseOneGroundingSnapTimer = Mathf.Max(0f, phaseOneGroundingSnapDuration);
     }
 
     private string GetTutorialTitle()
@@ -526,10 +644,13 @@ public class BullfightGameFlow : MonoBehaviour
         return tutorialState switch
         {
             TutorialState.Intro => "\u7b2c0\u968e\u6bb5\uff1a\u65b0\u624b\u6559\u5b78",
+            TutorialState.Move => "\u7b2c0\u968e\u6bb5\uff1a\u79fb\u52d5",
+            TutorialState.Look => "\u7b2c0\u968e\u6bb5\uff1a\u8f49\u52d5\u8996\u89d2",
             TutorialState.HoldCloth => "\u7b2c0\u968e\u6bb5\uff1a\u6301\u5e03",
             TutorialState.Capa => "\u7b2c0\u968e\u6bb5\uff1a\u63ee\u5e03",
             TutorialState.Dash => "\u7b2c0\u968e\u6bb5\uff1a\u9583\u907f",
             TutorialState.Attack => "\u7b2c0\u968e\u6bb5\uff1a\u653b\u64ca",
+            TutorialState.Rules => "\u4e0a\u5834\u524d\u898f\u5247\u8aaa\u660e",
             TutorialState.Complete => "\u6559\u5b78\u5b8c\u6210",
             _ => string.Empty
         };
@@ -539,11 +660,14 @@ public class BullfightGameFlow : MonoBehaviour
     {
         return tutorialState switch
         {
-            TutorialState.Intro => "\u5148\u8a8d\u8b58\u64cd\u4f5c\uff1a\u79fb\u52d5\u8207\u8996\u89d2\uff0cC \u6301\u7d05\u5e03\uff0cSpace \u63ee\u5e03\uff0cCtrl \u9583\u907f\uff0cF \u653b\u64ca\u3002",
-            TutorialState.HoldCloth => "\u6309\u4f4f C \u628a\u7d05\u5e03\u8209\u8d77\u4f86\u3002",
-            TutorialState.Capa => "\u6309\u4f4f C\uff0c\u7b49 QTE \u74b0\u7e2e\u8fd1\u6642\u6309 Space \u5b8c\u6210\u63ee\u5e03\u3002",
-            TutorialState.Dash => "\u7576\u725b\u76f4\u885d\u904e\u4f86\u6642\uff0c\u6309 Ctrl \u9583\u907f\u3002",
-            TutorialState.Attack => "\u9760\u8fd1\u725b\u4e4b\u5f8c\u6309 F\uff0c\u78ba\u5be6\u547d\u4e2d\u624d\u7b97 CLEAN\u3002",
+            TutorialState.Intro => $"\u5148\u8a8d\u8b58\u57fa\u790e\u64cd\u4f5c\uff1a{GetMoveLabel()} \u79fb\u52d5\uff0c{GetLookLabel()} \u8f49\u8996\u89d2\uff0c{GetHoldLabel()} \u6301\u5e03\uff0c{GetSwingLabel()} \u63ee\u5e03\uff0c{GetDashLabel()} \u9583\u907f\uff0c{GetAttackLabel()} \u653b\u64ca\u3002",
+            TutorialState.Move => $"\u8acb\u4f7f\u7528 {GetMoveLabel()} \u79fb\u52d5\u9b25\u725b\u58eb\u3002",
+            TutorialState.Look => $"\u8acb\u4f7f\u7528 {GetLookLabel()} \u89c0\u5bdf\u9b25\u725b\u5834\u8207\u725b\u7684\u4f4d\u7f6e\u3002",
+            TutorialState.HoldCloth => $"\u6309\u4f4f {GetHoldLabel()} \u8209\u8d77\u7d05\u5e03\uff0c\u9023\u7e8c\u5b8c\u6210 3 \u6b21\u3002",
+            TutorialState.Capa => $"\u6309\u4f4f {GetHoldLabel()}\uff0c\u7b49 QTE \u74b0\u7e2e\u8fd1\u6642\u6309 {GetSwingLabel()} \uff0c\u4e26\u62ff\u5230 Perfect\u3002",
+            TutorialState.Dash => $"\u7576\u725b\u76f4\u885d\u904e\u4f86\u6642\uff0c\u6309 {GetDashLabel()} \u9023\u7e8c\u5b8c\u6210 3 \u6b21\u6210\u529f\u9583\u907f\u3002",
+            TutorialState.Attack => $"\u9760\u8fd1\u725b\u5f8c\u6309 {GetAttackLabel()} \u9032\u884c\u653b\u64ca\uff0c\u9023\u7e8c\u5b8c\u6210 3 \u6b21\u6709\u6548\u547d\u4e2d\u3002",
+            TutorialState.Rules => $"\u8acb\u8b80\u5b8c\u4e0b\u65b9\u898f\u5247\uff0c\u4e4b\u5f8c\u6309 {GetAttackLabel()} \u7e7c\u7e8c\u3002",
             TutorialState.Complete => "\u5373\u5c07\u9032\u5165\u6b63\u5f0f\u7684\u7b2c\u4e00\u968e\u6bb5\u3002",
             _ => string.Empty
         };
@@ -557,19 +681,59 @@ public class BullfightGameFlow : MonoBehaviour
         return tutorialState switch
         {
             TutorialState.Intro => "\u6e96\u5099\u958b\u59cb",
-            TutorialState.HoldCloth => $"{Mathf.RoundToInt(Mathf.Clamp01(tutorialHoldTimer / Mathf.Max(0.01f, tutorialHoldDuration)) * 100f)}%",
-            TutorialState.Capa => "\u7528\u7d05\u5e03\u628a\u725b\u7684\u885d\u649e\u5e36\u958b\u3002",
-            TutorialState.Dash => "\u5f9e\u725b\u7684\u885d\u649e\u8def\u7dda\u4e2d\u9583\u958b\u3002",
+            TutorialState.Move => $"{Mathf.RoundToInt(Mathf.Clamp01(tutorialMoveProgress / Mathf.Max(0.01f, tutorialMoveDuration)) * 100f)}%",
+            TutorialState.Look => $"{Mathf.RoundToInt(Mathf.Clamp01(tutorialLookProgress / Mathf.Max(0.01f, tutorialLookDuration)) * 100f)}%",
+            TutorialState.HoldCloth => $"{tutorialHoldSuccessCount}/{Mathf.Max(1, tutorialHoldRequiredCount)}",
+            TutorialState.Capa => "\u6559\u5b78\u8981\u6c42\uff1aPerfect \u4e00\u6b21",
+            TutorialState.Dash => $"{tutorialDashSuccessCount}/{Mathf.Max(1, tutorialDashRequiredCount)}",
             TutorialState.Attack => tutorialAttackPerformed
                 ? "\u6b63\u5728\u78ba\u8a8d\u662f\u5426\u70ba CLEAN \u547d\u4e2d..."
-                : "\u4e00\u6b21\u6709\u6548\u547d\u4e2d\u5c31\u80fd\u5b8c\u6210\u9019\u500b\u6b65\u9a5f\u3002",
+                : $"{tutorialAttackSuccessCount}/{Mathf.Max(1, tutorialAttackRequiredCount)}",
+            TutorialState.Rules => tutorialStateElapsed < tutorialRulesMinReadDuration
+                ? "\u8acb\u5148\u8b80\u5b8c\u6240\u6709\u898f\u5247"
+                : $"\u6309 {GetAttackLabel()} \u9032\u5165\u6b63\u5f0f\u6230\u9b25",
             TutorialState.Complete => "\u9032\u5165\u6b63\u5f0f\u6230\u9b25...",
             _ => string.Empty
         };
     }
 
+    private string GetTutorialBody()
+    {
+        if (tutorialState != TutorialState.Rules)
+            return string.Empty;
+
+        return
+            "\u9b25\u725b\u58eb\u60a8\u597d\uff0c\u6b61\u8fce\u53c3\u52a0\u672c\u6b21\u7684\u9b25\u725b\u7af6\u8cfd\u3002\u9019\u662f\u4e00\u4efd\u6975\u9ad8\u7684\u69ae\u8b7d\uff0c\u60a8\u5c07\u89aa\u8eab\u5c0d\u6c7a\u9019\u982d\u731b\u725b\uff0c\u4e26\u6c7a\u5b9a\u6700\u7d42\u7684\u7d50\u5c40\u3002\u8acb\u52d9\u5fc5\u719f\u8a18\u4ee5\u4e0b\u6240\u6709\u898f\u5247\uff0c\u9019\u5c07\u662f\u60a8\u5728\u5834\u4e0a\u751f\u5b58\u7684\u552f\u4e00\u4f9d\u64da\u3002\n\n" +
+            "\u4e00\u3001\u9b25\u725b\u58eb\u72c0\u614b\u8207\u9650\u5236\n" +
+            "\u9ad4\u529b\u8207\u6688\u7729\uff1a\n" +
+            "\u57f7\u884c\u4efb\u4f55\u6fc0\u70c8\u52d5\u4f5c\uff08\u62ab\u80a9\u3001\u9583\u907f\u3001\u653b\u64ca\uff09\u7686\u6703\u6d88\u8017\u9ad4\u529b\u3002\n" +
+            "\u898f\u5247\uff1a\u82e5\u9ad4\u529b\u6d88\u8017\u5149\u4fbf\u6703\u9032\u5165 2 \u79d2\u6688\u7729\u72c0\u614b\uff0c\u6b64\u671f\u9593\u73a9\u5bb6\u4e0d\u53ef\u88ab\u64cd\u7e31\uff0c\u4e14\u6975\u6613\u53d7\u5230\u653b\u64ca\u3002\n" +
+            "\u6301\u5e03\u72c0\u614b\uff1a\n" +
+            "\u898f\u5247\uff1a\u6301\u5e03\u72c0\u614b\u4e0b\u73a9\u5bb6\u4e0d\u53ef\u79fb\u52d5\u4e5f\u4e0d\u53ef\u653b\u64ca\u3002\n" +
+            "\u88dc\u511f\uff1a\u6b64\u72c0\u614b\u4e0b\u9ad4\u529b\u6062\u5fa9\u901f\u5ea6\u6700\u5feb\uff08\u6bcf\u79d2\u6062\u5fa9 15%\uff09\uff0c\u662f\u6230\u9b25\u4e2d\u552f\u4e00\u7684\u5598\u606f\u6a5f\u6703\u3002\n" +
+            "\u751f\u547d\u503c\uff1a\n" +
+            "\u82e5\u8840\u91cf\u6b78\u96f6\u5247\u76f4\u63a5\u5224\u5b9a\u6b7b\u4ea1\uff08\u89f8\u767c\u60b2\u5287\u7d50\u5c40\uff09\u3002\n\n" +
+            "\u4e8c\u3001\u4ec7\u6068\u8207\u7bc4\u570d\u5224\u5b9a\n" +
+            "\u653b\u64ca\u7bc4\u570d\u898f\u5247\uff1a\n" +
+            "* \u82e5\u73a9\u5bb6\u5728\u725b\u7684\u885d\u92d2\u7db2\u683c\uff08\u5730\u9762\u7d05\u8272\u77e9\u5f62\uff09\u5167\uff0c\u5247\u88ab\u8996\u70ba\u53ef\u653b\u64ca\u5c0d\u8c61\u3002\n" +
+            "\u82e5\u6210\u529f\u9583\u907f\u6216\u9003\u51fa\u8a72\u7bc4\u570d\uff0c\u5247\u725b\u7684\u885d\u92d2\u5c07\u4e0d\u6703\u5c0d\u60a8\u9020\u6210\u50b7\u5bb3\u3002\n" +
+            "\u6012\u6c23\uff1a\n" +
+            "\u9b25\u725b\u53d7\u5230\u50b7\u5bb3\u6216\u88ab\u6311\u91c1\u6703\u589e\u52a0\u6012\u6c23\u3002\u6012\u6c23\u8d8a\u9ad8\uff0c\u725b\u7684\u885d\u92d2\u901f\u5ea6\u8d8a\u5feb\uff08\u6700\u9ad8 1.1x\uff09\uff0c\u4e14\u8f49\u5411\u8207\u653b\u64ca\u983b\u7387\u4e5f\u6703\u96a8\u4e4b\u63d0\u5347\u3002\n\n" +
+            "\u4e09\u3001\u7cbe\u6e96\u5224\u5b9a\u7cfb\u7d71\n" +
+            "\u7576\u9032\u884c\u6301\u5e03 \u6216 \u6700\u7d42\u523a\u6bba \u6642\uff0c\u756b\u9762\u4e0a\u6703\u51fa\u73fe\u7e2e\u5708\u5224\u5b9a\uff1a\n\n" +
+            "Miss (\u7d05\u8272)\uff1a\u5224\u5b9a\u5931\u6557\u3002\u73a9\u5bb6\u53d7\u50b7\u3001\u9ad4\u529b\u7acb\u5373\u6b78\u96f6\u3001\u4e26\u76f4\u63a5\u9032\u5165\u6688\u7729\u72c0\u614b\u3002\n" +
+            "Good (\u6a58\u8272)\uff1a\u5224\u5b9a\u6210\u529f\u3002\u53ef\u8b93\u725b\u505c\u4e0b\u7576\u524d\u7684\u653b\u64ca\uff0c\u96d9\u65b9\u91cd\u65b0\u62c9\u958b\u8ddd\u96e2\u3002\n" +
+            "Perfect (\u7da0\u8272)\uff1a\u5b8c\u7f8e\u5224\u5b9a\u3002\u8b93\u725b\u505c\u6b62\u653b\u64ca\uff0c\u4e14\u73a9\u5bb6\u6703\u7372\u5f97\u9ad4\u529b\u5927\u5e45\u56de\u5347\u8207\u77ed\u66ab\u7684\u79fb\u52d5\u52a0\u901f Buff\u3002";
+    }
+
     private void UpdatePhaseOne()
     {
+        if (phaseOneGroundingSnapTimer > 0f)
+        {
+            phaseOneGroundingSnapTimer = Mathf.Max(0f, phaseOneGroundingSnapTimer - Time.unscaledDeltaTime);
+            bullAI?.ForceSnapToGround();
+        }
+
         if (bullStats != null && bullStats.InFinalPhase)
             EnterPhaseTwo();
     }
@@ -692,20 +856,112 @@ public class BullfightGameFlow : MonoBehaviour
     {
         phaseTwoStateElapsed += Time.unscaledDeltaTime;
 
-        if (!phaseTwoResolveBullResetApplied && phaseTwoStateElapsed >= GetRoundResolveBullResetDelay())
+        if (!phaseTwoResolveBullResetApplied)
         {
             phaseTwoResolveBullResetApplied = true;
-            ResetBullForPhaseTwoRound();
-            bullAI?.PlayPhaseTwoRoundResetIdle();
+            phaseTwoResolveCompleted = false;
+            phaseTwoResolveWalkInitialized = false;
         }
 
-        if (phaseTwoStateElapsed < GetActiveRoundResolveDuration())
+        if (phaseTwoResolveWasMiss)
+            UpdatePhaseTwoMissResolve();
+        else
+            UpdatePhaseTwoResolveWalk();
+
+        if (!phaseTwoResolveCompleted)
             return;
 
         if (CheckPhaseTwoVictory())
             return;
 
         StartNextPhaseTwoRound();
+    }
+
+    private void UpdatePhaseTwoResolveWalk()
+    {
+        if (bullAI == null || playerStats == null || phaseTwoState != PhaseTwoState.RoundResolve || !phaseTwoResolveBullResetApplied)
+            return;
+
+        if (!phaseTwoResolveWalkInitialized)
+        {
+            phaseTwoResolveWalkInitialized = true;
+            phaseTwoResolveCenterPoint = bullAI.transform.position;
+            ResolvePhaseTwoShuttlePoints(phaseTwoResolveCenterPoint);
+            phaseTwoResolveShuttleSegment = 0;
+            bullAI.PlayPhaseTwoWalkLoop();
+        }
+
+        Vector3 current = bullAI.transform.position;
+        Vector3 target = phaseTwoResolveShuttleSegment switch
+        {
+            0 => phaseTwoRoundSideSign > 0 ? phaseTwoResolveRightPoint : phaseTwoResolveLeftPoint,
+            1 => phaseTwoRoundSideSign > 0 ? phaseTwoResolveLeftPoint : phaseTwoResolveRightPoint,
+            _ => phaseTwoResolveCenterPoint
+        };
+
+        Vector3 nextPosition = Vector3.MoveTowards(current, target, Mathf.Max(0.5f, phaseTwoShuttleRunSpeed) * Time.unscaledDeltaTime);
+        Vector3 moveDirection = target - current;
+        moveDirection.y = 0f;
+        Quaternion nextRotation = moveDirection.sqrMagnitude > 0.0001f
+            ? Quaternion.LookRotation(moveDirection.normalized, Vector3.up)
+            : bullAI.transform.rotation;
+
+        bullAI.SetPhaseTwoPose(nextPosition, nextRotation);
+
+        if (Vector3.Distance(nextPosition, target) > 0.04f)
+            return;
+
+        phaseTwoResolveShuttleSegment++;
+        if (phaseTwoResolveShuttleSegment <= 2)
+            return;
+
+        phaseTwoResolveCompleted = true;
+        bullAI.PlayPhaseTwoRoundResetIdle();
+    }
+
+    private void UpdatePhaseTwoMissResolve()
+    {
+        if (bullAI == null || playerStats == null)
+            return;
+
+        float chargeDuration = Mathf.Max(0.2f, phaseTwoMissChargeDuration);
+        float pauseDuration = Mathf.Max(0f, phaseTwoMissPauseDuration);
+        float totalDuration = chargeDuration + pauseDuration;
+
+        if (phaseTwoStateElapsed <= chargeDuration)
+        {
+            Vector3 current = bullAI.transform.position;
+            Vector3 toPlayer = playerStats.transform.position - current;
+            toPlayer.y = 0f;
+            if (toPlayer.sqrMagnitude > 0.0001f)
+            {
+                Vector3 direction = toPlayer.normalized;
+                Vector3 target = playerStats.transform.position - direction * 0.55f;
+                target.y = current.y;
+                Vector3 nextPosition = Vector3.MoveTowards(current, target, Mathf.Max(0.8f, phaseTwoShuttleRunSpeed * 1.4f) * Time.unscaledDeltaTime);
+                Vector3 moveDirection = target - current;
+                moveDirection.y = 0f;
+                Quaternion nextRotation = moveDirection.sqrMagnitude > 0.0001f
+                    ? Quaternion.LookRotation(moveDirection.normalized, Vector3.up)
+                    : bullAI.transform.rotation;
+                bullAI.SetPhaseTwoPose(nextPosition, nextRotation);
+            }
+
+            bullAI.PlayPhaseTwoAttackFollowThrough();
+
+            if (!phaseTwoResolveMissImpactApplied && phaseTwoStateElapsed >= chargeDuration * 0.65f)
+            {
+                phaseTwoResolveMissImpactApplied = true;
+                playerStats.TakeBullImpact(14f, bullAI.transform.position);
+            }
+        }
+        else
+        {
+            bullAI.PlayPhaseTwoStandoffIdle();
+        }
+
+        if (phaseTwoStateElapsed >= totalDuration)
+            phaseTwoResolveCompleted = true;
     }
 
     private void HandlePhaseTwoStabResult(string result)
@@ -718,6 +974,11 @@ public class BullfightGameFlow : MonoBehaviour
         phaseTwoHasCommittedAttack = true;
 
         bool isSuccess = result == "Perfect!" || result == "Good";
+        phaseTwoResolveWasMiss = !isSuccess;
+        phaseTwoResolveMissImpactApplied = false;
+        phaseTwoResolveCompleted = false;
+        phaseTwoResolveShuttleSegment = 0;
+        phaseTwoResolveNarrationLine = string.Empty;
         if (isSuccess)
         {
             bullHitCount++;
@@ -731,11 +992,12 @@ public class BullfightGameFlow : MonoBehaviour
             playerHitCount++;
             playerStats?.TakeDamage(0f);
             bullAI?.PlayPhaseTwoAttackFollowThrough();
+            phaseTwoResolveNarrationLine = GetRandomPhaseTwoReflectionLine();
         }
 
         if (timingRing != null)
         {
-            timingRing.HideImmediate();
+            timingRing.HideRingKeepFeedback();
             timingRing.ResetTimingWindow();
         }
 
@@ -745,6 +1007,7 @@ public class BullfightGameFlow : MonoBehaviour
         phaseTwoState = PhaseTwoState.RoundResolve;
         phaseTwoStateElapsed = 0f;
         phaseTwoResolveBullResetApplied = false;
+        phaseTwoResolveWalkInitialized = false;
     }
 
     private bool CheckPhaseTwoVictory()
@@ -787,15 +1050,26 @@ public class BullfightGameFlow : MonoBehaviour
         phaseTwoRoundIndex++;
         phaseTwoState = PhaseTwoState.RoundPrepare;
         phaseTwoStateElapsed = 0f;
-        activeRoundWindowDuration = roundWindowDuration;
+        activeRoundWindowDuration = GetActiveRoundWindowDuration();
         lastPhaseTwoResult = string.Empty;
         currentRoundHasPerfectAdvantage = nextRoundHasPerfectAdvantage;
         nextRoundHasPerfectAdvantage = false;
         phaseTwoPrepareTelegraphStarted = false;
         phaseTwoResolveBullResetApplied = false;
+        phaseTwoResolveWalkInitialized = false;
+        phaseTwoResolveWasMiss = false;
+        phaseTwoResolveMissImpactApplied = false;
+        phaseTwoResolveCompleted = false;
+        phaseTwoResolveShuttleSegment = 0;
+        phaseTwoResolveNarrationLine = string.Empty;
 
         if (currentRoundHasPerfectAdvantage)
             activeRoundWindowDuration += perfectTelegraphBonus;
+
+        // Keep each phase-two attack centered on screen; only the resolve sequence
+        // should perform the side-to-side shuttle motion.
+        ResetBullForPhaseTwoRound();
+        phaseTwoRoundSideSign *= -1;
 
         if (timingRing != null)
         {
@@ -847,17 +1121,25 @@ public class BullfightGameFlow : MonoBehaviour
         phaseTwoRoundIndex = 0;
         bullHitCount = 0;
         playerHitCount = 0;
-        activeRoundWindowDuration = roundWindowDuration;
+        activeRoundWindowDuration = GetActiveRoundWindowDuration();
         nextRoundHasPerfectAdvantage = false;
         currentRoundHasPerfectAdvantage = false;
+        phaseTwoRoundSideSign = 1;
         phaseTwoPrepareTelegraphStarted = false;
         phaseTwoResolveBullResetApplied = false;
+        phaseTwoResolveWalkInitialized = false;
+        phaseTwoResolveWasMiss = false;
+        phaseTwoResolveMissImpactApplied = false;
+        phaseTwoResolveCompleted = false;
+        phaseTwoResolveShuttleSegment = 0;
+        phaseTwoResolveNarrationLine = string.Empty;
         lastPhaseTwoResult = string.Empty;
         Time.timeScale = phaseTwoTimeScale;
 
         if (bullAI != null)
             bullAI.enabled = false;
 
+        bullBleedVfx?.ClearBleeds();
         ResetBullForPhaseTwoRound();
         bullAI?.PlayPhaseTwoStandoffIdle();
 
@@ -889,6 +1171,12 @@ public class BullfightGameFlow : MonoBehaviour
         currentRoundHasPerfectAdvantage = false;
         phaseTwoPrepareTelegraphStarted = false;
         phaseTwoResolveBullResetApplied = false;
+        phaseTwoResolveWalkInitialized = false;
+        phaseTwoResolveWasMiss = false;
+        phaseTwoResolveMissImpactApplied = false;
+        phaseTwoResolveCompleted = false;
+        phaseTwoResolveShuttleSegment = 0;
+        phaseTwoResolveNarrationLine = string.Empty;
         lastPhaseTwoResult = string.Empty;
         bullAI?.PlayPhaseTwoStandoffIdle();
     }
@@ -902,6 +1190,12 @@ public class BullfightGameFlow : MonoBehaviour
         currentRoundHasPerfectAdvantage = false;
         phaseTwoPrepareTelegraphStarted = false;
         phaseTwoResolveBullResetApplied = false;
+        phaseTwoResolveWalkInitialized = false;
+        phaseTwoResolveWasMiss = false;
+        phaseTwoResolveMissImpactApplied = false;
+        phaseTwoResolveCompleted = false;
+        phaseTwoResolveShuttleSegment = 0;
+        phaseTwoResolveNarrationLine = string.Empty;
         lastPhaseTwoResult = string.Empty;
         ResetBullForPhaseTwoRound();
         bullAI?.PlayPhaseTwoStandoffIdle();
@@ -944,6 +1238,9 @@ public class BullfightGameFlow : MonoBehaviour
         if (currentPhase == GamePhase.Ending)
             return;
 
+        if (ending == EndingType.Tragedy && playerStats != null)
+            playerStats.ForceEndingDeathPresentation();
+
         currentPhase = GamePhase.Ending;
         currentEnding = ending;
         phaseTwoState = PhaseTwoState.None;
@@ -983,25 +1280,72 @@ public class BullfightGameFlow : MonoBehaviour
         tutorialDashStepStartedAt = -999f;
         tutorialAttackResolveAt = -1f;
         tutorialAttackHealthAtStepStart = 0f;
+        tutorialMoveProgress = 0f;
+        tutorialLookProgress = 0f;
         phaseTwoRoundIndex = 0;
         bullHitCount = 0;
         playerHitCount = 0;
+        tutorialHoldSuccessCount = 0;
+        tutorialDashSuccessCount = 0;
+        tutorialAttackSuccessCount = 0;
         phaseTwoCalibrated = false;
         phaseTwoHasCommittedAttack = false;
         nextRoundHasPerfectAdvantage = false;
         currentRoundHasPerfectAdvantage = false;
+        phaseTwoRoundSideSign = 1;
         phaseTwoPrepareTelegraphStarted = false;
         phaseTwoResolveBullResetApplied = false;
+        phaseTwoResolveWalkInitialized = false;
+        phaseTwoResolveWasMiss = false;
+        phaseTwoResolveMissImpactApplied = false;
+        phaseTwoResolveCompleted = false;
+        phaseTwoResolveShuttleSegment = 0;
         tutorialChargeStarted = false;
         tutorialCapaQteStarted = false;
         tutorialCapaQteResolved = false;
+        tutorialHoldRegisteredThisAttempt = false;
         tutorialAttackPerformed = false;
         tutorialAttackCleanHitRegistered = false;
         lastPhaseTwoResult = string.Empty;
         tutorialFeedbackText = string.Empty;
+        phaseOneGroundingSnapTimer = 0f;
+        phaseTwoResolveNarrationLine = string.Empty;
+        phaseTwoResolveCenterPoint = Vector3.zero;
+        phaseTwoResolveLeftPoint = Vector3.zero;
+        phaseTwoResolveRightPoint = Vector3.zero;
         phaseTwoPresentation?.ExitPhaseTwo();
         bullAI?.SetTutorialControl(false);
         Time.timeScale = 1f;
+    }
+
+    private string GetMoveLabel()
+    {
+        return playerController != null ? playerController.GetMoveDisplayLabel() : "\u5de6\u6416\u687f";
+    }
+
+    private string GetLookLabel()
+    {
+        return playerController != null ? playerController.GetLookDisplayLabel() : "\u53f3\u6416\u687f";
+    }
+
+    private string GetHoldLabel()
+    {
+        return playerController != null ? playerController.GetHoldDisplayLabel() : "ZL + ZR";
+    }
+
+    private string GetSwingLabel()
+    {
+        return playerController != null ? playerController.GetSwingDisplayLabel() : "X";
+    }
+
+    private string GetDashLabel()
+    {
+        return playerController != null ? playerController.GetDashDisplayLabel() : "Y";
+    }
+
+    private string GetAttackLabel()
+    {
+        return playerController != null ? playerController.GetAttackDisplayLabel() : "B";
     }
 
     private bool HasMissingReferences()
@@ -1026,6 +1370,9 @@ public class BullfightGameFlow : MonoBehaviour
         if (bullAI == null)
             bullAI = BullfightSceneCache.FindObject<BullAI>();
 
+        if (bullBleedVfx == null && bullAI != null)
+            bullBleedVfx = bullAI.GetComponent<BullBleedVfx>();
+
         if (playerController == null)
             playerController = BullfightSceneCache.FindObject<BullfightPlayerController>();
 
@@ -1047,24 +1394,22 @@ public class BullfightGameFlow : MonoBehaviour
         RefreshTutorialSubscriptions();
     }
 
-    private void ResetBullForPhaseTwoRound()
+    private void ResetBullForPhaseTwoRound(int sideSign = 0)
     {
-        spawnManager?.ResetBullForPhaseTwoRound(phaseTwoBullFrontDistance, phaseTwoBullSideOffset);
+        float sideMagnitude = Mathf.Max(Mathf.Abs(phaseTwoBullSideOffset), Mathf.Abs(phaseTwoRoundSideOffset));
+        float resolvedSideOffset = sideSign == 0 ? phaseTwoBullSideOffset : sideMagnitude * sideSign;
+        spawnManager?.ResetBullForPhaseTwoRound(phaseTwoBullFrontDistance, resolvedSideOffset);
+        bullAI?.ForceSnapToGround();
     }
 
     private float GetActiveRoundPrepareDuration()
     {
-        return Mathf.Max(roundPrepareDuration, 0.95f) + GetRoundStanceDuration();
+        return Mathf.Max(roundPrepareDuration, 1.8f) + Mathf.Max(0.9f, GetRoundStanceDuration());
     }
 
-    private float GetActiveRoundResolveDuration()
+    private float GetActiveRoundWindowDuration()
     {
-        return Mathf.Max(roundResolveDuration, 0.9f) + Mathf.Max(0f, interRoundFaceoffDuration);
-    }
-
-    private float GetRoundResolveBullResetDelay()
-    {
-        return Mathf.Min(0.42f, GetActiveRoundResolveDuration() * 0.45f);
+        return Mathf.Max(roundWindowDuration, 1.7f);
     }
 
     private float GetRoundStanceDuration()
@@ -1091,6 +1436,42 @@ public class BullfightGameFlow : MonoBehaviour
 
         int clampedIndex = Mathf.Clamp(Mathf.Max(phaseTwoRoundIndex, 1) - 1, 0, phaseTwoReflectionLines.Length - 1);
         return phaseTwoReflectionLines[clampedIndex] ?? string.Empty;
+    }
+
+    private string GetRandomPhaseTwoReflectionLine()
+    {
+        if (phaseTwoReflectionLines == null || phaseTwoReflectionLines.Length == 0)
+            return string.Empty;
+
+        int randomIndex = Random.Range(0, phaseTwoReflectionLines.Length);
+        return phaseTwoReflectionLines[randomIndex] ?? string.Empty;
+    }
+
+    private void ResolvePhaseTwoShuttlePoints(Vector3 centerPoint)
+    {
+        if (playerStats == null)
+        {
+            phaseTwoResolveCenterPoint = centerPoint;
+            phaseTwoResolveLeftPoint = centerPoint + Vector3.left * Mathf.Max(0.45f, phaseTwoRoundSideOffset);
+            phaseTwoResolveRightPoint = centerPoint + Vector3.right * Mathf.Max(0.45f, phaseTwoRoundSideOffset);
+            return;
+        }
+
+        Transform playerTransform = playerStats.transform;
+        Vector3 forward = playerTransform.forward;
+        forward.y = 0f;
+        if (forward.sqrMagnitude <= 0.0001f)
+            forward = Vector3.forward;
+
+        forward.Normalize();
+        Vector3 right = new Vector3(forward.z, 0f, -forward.x).normalized;
+        float sideDistance = Mathf.Max(0.45f, phaseTwoRoundSideOffset);
+
+        phaseTwoResolveCenterPoint = centerPoint;
+        phaseTwoResolveLeftPoint = centerPoint - right * sideDistance;
+        phaseTwoResolveRightPoint = centerPoint + right * sideDistance;
+        phaseTwoResolveLeftPoint.y = centerPoint.y;
+        phaseTwoResolveRightPoint.y = centerPoint.y;
     }
 
     private void OnDestroy()

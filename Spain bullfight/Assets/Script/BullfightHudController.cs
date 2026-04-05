@@ -49,6 +49,14 @@ public class BullfightHudController : MonoBehaviour
     [SerializeField] private string tutorialTitleName = "BullfightTutorialTitle";
     [SerializeField] private string tutorialInstructionName = "BullfightTutorialInstruction";
     [SerializeField] private string tutorialStatusName = "BullfightTutorialStatus";
+    [SerializeField] private string tutorialBodyName = "BullfightTutorialBody";
+    [SerializeField] private string tutorialBackdropName = "BullfightTutorialBackdrop";
+    [SerializeField] private string tutorialPanelName = "BullfightTutorialPanel";
+    [SerializeField] private string tutorialAccentBandName = "BullfightTutorialAccentBand";
+    [SerializeField] private string tutorialTopBorderName = "BullfightTutorialTopBorder";
+    [SerializeField] private string tutorialBottomBorderName = "BullfightTutorialBottomBorder";
+    [SerializeField] private string tutorialLeftBorderName = "BullfightTutorialLeftBorder";
+    [SerializeField] private string tutorialRightBorderName = "BullfightTutorialRightBorder";
 
     [SerializeField] private Vector2 healthBarOffset = new Vector2(24f, 56f);
     [SerializeField] private Vector2 staminaBarOffset = new Vector2(24f, 22f);
@@ -72,9 +80,12 @@ public class BullfightHudController : MonoBehaviour
     [SerializeField] private Vector2 phaseTwoRoundPosition = new Vector2(0f, -74f);
     [SerializeField] private Vector2 phaseTwoScorePosition = new Vector2(0f, -102f);
     [SerializeField] private Vector2 tutorialOverlaySize = new Vector2(1040f, 220f);
+    [SerializeField] private Vector2 tutorialRulesOverlaySize = new Vector2(1880f, 1060f);
     [SerializeField] private Vector2 tutorialTitlePosition = new Vector2(0f, 34f);
     [SerializeField] private Vector2 tutorialInstructionPosition = new Vector2(0f, -10f);
     [SerializeField] private Vector2 tutorialStatusPosition = new Vector2(0f, -58f);
+    [SerializeField] private Vector2 tutorialBodyPosition = new Vector2(0f, -112f);
+    [SerializeField] private Vector2 tutorialBodySize = new Vector2(1740f, 790f);
     [SerializeField] private int phaseTwoTitleFontSize = 58;
     [SerializeField] private int phaseTwoSubtitleFontSize = 30;
     [SerializeField] private int phaseTwoStatusFontSize = 24;
@@ -82,6 +93,7 @@ public class BullfightHudController : MonoBehaviour
     [SerializeField] private int tutorialTitleFontSize = 50;
     [SerializeField] private int tutorialInstructionFontSize = 28;
     [SerializeField] private int tutorialStatusFontSize = 22;
+    [SerializeField] private int tutorialBodyFontSize = 22;
     [SerializeField] private Color bullBossGold = new Color(0.87f, 0.67f, 0.18f, 1f);
     [SerializeField] private Color bullBossTitleColor = new Color(0.97f, 0.93f, 0.82f, 1f);
     [SerializeField] private Color phaseTextColor = new Color(0.97f, 0.93f, 0.82f, 1f);
@@ -89,6 +101,10 @@ public class BullfightHudController : MonoBehaviour
     [SerializeField] private Color playerStaminaLabelColor = new Color(0.2f, 0.52f, 0.96f, 1f);
     [SerializeField] private Color phaseTwoStatusColor = new Color(0.95f, 0.83f, 0.88f, 1f);
     [SerializeField] private Color bullPhaseTwoFillColor = new Color(0.56f, 0.2f, 0.92f, 1f);
+    [SerializeField] private Color tutorialBackdropColor = new Color(0.07f, 0.02f, 0.02f, 0.72f);
+    [SerializeField] private Color tutorialPanelColor = new Color(0.14f, 0.04f, 0.04f, 0.92f);
+    [SerializeField] private Color tutorialBorderColor = new Color(0.84f, 0.71f, 0.49f, 0.9f);
+    [SerializeField] private Color tutorialAccentColor = new Color(0.72f, 0.12f, 0.12f, 1f);
     [SerializeField] private float playerHudScale = 2f;
     [SerializeField] private Vector2 playerBarBaseSize = new Vector2(160f, 20f);
     [SerializeField] private Vector2 playerBarLabelBaseSize = new Vector2(160f, 24f);
@@ -112,9 +128,17 @@ public class BullfightHudController : MonoBehaviour
     private Text phaseTwoRound;
     private Text phaseTwoScore;
     private RectTransform tutorialOverlayRoot;
+    private Image tutorialBackdrop;
+    private Image tutorialPanel;
+    private Image tutorialAccentBand;
+    private Image tutorialTopBorder;
+    private Image tutorialBottomBorder;
+    private Image tutorialLeftBorder;
+    private Image tutorialRightBorder;
     private Text tutorialTitle;
     private Text tutorialInstruction;
     private Text tutorialStatus;
+    private Text tutorialBody;
     private Color cachedBullFillColor;
     private bool hasCachedBullFillColor;
     private bool layoutDirty = true;
@@ -177,9 +201,17 @@ public class BullfightHudController : MonoBehaviour
         phaseTwoRound = null;
         phaseTwoScore = null;
         tutorialOverlayRoot = null;
+        tutorialBackdrop = null;
+        tutorialPanel = null;
+        tutorialAccentBand = null;
+        tutorialTopBorder = null;
+        tutorialBottomBorder = null;
+        tutorialLeftBorder = null;
+        tutorialRightBorder = null;
         tutorialTitle = null;
         tutorialInstruction = null;
         tutorialStatus = null;
+        tutorialBody = null;
         hasCachedBullFillColor = false;
         legacyUiDisabled = false;
         layoutDirty = true;
@@ -427,6 +459,11 @@ public class BullfightHudController : MonoBehaviour
         if (hudCanvasRect == null)
             return;
 
+        tutorialBackdrop = GetOrCreateUiImage(hudCanvasRect, tutorialBackdropName);
+        StretchToFullScreen(tutorialBackdrop.rectTransform);
+        tutorialBackdrop.color = tutorialBackdropColor;
+        tutorialBackdrop.raycastTarget = false;
+
         tutorialOverlayRoot = GetOrCreateUiRect(hudCanvasRect, tutorialOverlayRootName);
         tutorialOverlayRoot.anchorMin = new Vector2(0.5f, 0.5f);
         tutorialOverlayRoot.anchorMax = new Vector2(0.5f, 0.5f);
@@ -436,9 +473,26 @@ public class BullfightHudController : MonoBehaviour
         tutorialOverlayRoot.localScale = Vector3.one;
         tutorialOverlayRoot.localRotation = Quaternion.identity;
 
+        tutorialPanel = GetOrCreateUiImage(tutorialOverlayRoot, tutorialPanelName);
+        tutorialAccentBand = GetOrCreateUiImage(tutorialOverlayRoot, tutorialAccentBandName);
+        tutorialTopBorder = GetOrCreateUiImage(tutorialOverlayRoot, tutorialTopBorderName);
+        tutorialBottomBorder = GetOrCreateUiImage(tutorialOverlayRoot, tutorialBottomBorderName);
+        tutorialLeftBorder = GetOrCreateUiImage(tutorialOverlayRoot, tutorialLeftBorderName);
+        tutorialRightBorder = GetOrCreateUiImage(tutorialOverlayRoot, tutorialRightBorderName);
+
+        tutorialPanel.transform.SetAsFirstSibling();
+        tutorialAccentBand.transform.SetAsLastSibling();
+        tutorialBackdrop.transform.SetAsLastSibling();
+        tutorialOverlayRoot.SetAsLastSibling();
+
         tutorialTitle = GetOrCreateUiText(tutorialOverlayRoot, tutorialTitleName);
         tutorialInstruction = GetOrCreateUiText(tutorialOverlayRoot, tutorialInstructionName);
         tutorialStatus = GetOrCreateUiText(tutorialOverlayRoot, tutorialStatusName);
+        tutorialBody = GetOrCreateUiText(tutorialOverlayRoot, tutorialBodyName);
+        tutorialTitle.transform.SetAsLastSibling();
+        tutorialInstruction.transform.SetAsLastSibling();
+        tutorialStatus.transform.SetAsLastSibling();
+        tutorialBody.transform.SetAsLastSibling();
     }
 
     private void ConfigureDecorLine(Image image, Vector2 anchoredPosition, Vector2 size)
@@ -498,7 +552,7 @@ public class BullfightHudController : MonoBehaviour
         if (phaseLabel == null || gameFlow == null)
             return;
 
-        phaseLabel.text = GetPhaseLabel(gameFlow.currentPhase);
+        phaseLabel.text = GetPhaseLabel(gameFlow.currentPhase, gameFlow.currentEnding);
     }
 
     private void UpdatePhaseTwoHud()
@@ -516,12 +570,83 @@ public class BullfightHudController : MonoBehaviour
 
         bool shouldShow = gameFlow != null && gameFlow.ShouldShowTutorialOverlay();
         tutorialOverlayRoot.gameObject.SetActive(shouldShow);
+        if (tutorialBackdrop != null)
+            tutorialBackdrop.gameObject.SetActive(shouldShow);
         if (!shouldShow)
             return;
 
-        ConfigureCenteredText(tutorialTitle, tutorialTitlePosition, tutorialTitleFontSize, bullBossTitleColor, FontStyle.Bold, gameFlow.CurrentTutorialTitle);
-        ConfigureCenteredText(tutorialInstruction, tutorialInstructionPosition, tutorialInstructionFontSize, bullBossTitleColor, FontStyle.Normal, gameFlow.CurrentTutorialInstruction);
-        ConfigureCenteredText(tutorialStatus, tutorialStatusPosition, tutorialStatusFontSize, phaseTwoStatusColor, FontStyle.Italic, gameFlow.CurrentTutorialStatus);
+        bool showRules = gameFlow.IsTutorialRulesStep;
+        Vector2 overlaySize = showRules ? tutorialRulesOverlaySize : tutorialOverlaySize;
+        tutorialOverlayRoot.sizeDelta = overlaySize;
+        tutorialOverlayRoot.anchoredPosition = showRules ? Vector2.zero : new Vector2(0f, 150f);
+        ConfigureTutorialPanel(overlaySize, showRules);
+
+        Vector2 titlePosition = showRules ? new Vector2(0f, 438f) : tutorialTitlePosition;
+        Vector2 instructionPosition = showRules ? new Vector2(0f, 0f) : tutorialInstructionPosition;
+        Vector2 statusPosition = showRules ? new Vector2(0f, -474f) : tutorialStatusPosition;
+
+        ConfigureCenteredText(tutorialTitle, titlePosition, tutorialTitleFontSize, bullBossTitleColor, FontStyle.Bold, gameFlow.CurrentTutorialTitle);
+        ConfigureCenteredText(tutorialInstruction, instructionPosition, tutorialInstructionFontSize, bullBossTitleColor, FontStyle.Normal, showRules ? string.Empty : gameFlow.CurrentTutorialInstruction);
+        ConfigureCenteredText(tutorialStatus, statusPosition, tutorialStatusFontSize, bullBossGold, FontStyle.Bold, gameFlow.CurrentTutorialStatus);
+        ConfigureTutorialBodyText(tutorialBody, tutorialBodyPosition, tutorialBodySize, tutorialBodyFontSize, bullBossTitleColor, showRules ? gameFlow.CurrentTutorialBody : string.Empty, showRules);
+    }
+
+    private void ConfigureTutorialPanel(Vector2 panelSize, bool showRules)
+    {
+        if (tutorialPanel == null ||
+            tutorialAccentBand == null ||
+            tutorialTopBorder == null ||
+            tutorialBottomBorder == null ||
+            tutorialLeftBorder == null ||
+            tutorialRightBorder == null)
+            return;
+
+        if (tutorialBackdrop != null)
+            tutorialBackdrop.color = new Color(tutorialBackdropColor.r, tutorialBackdropColor.g, tutorialBackdropColor.b, showRules ? tutorialBackdropColor.a : 0.34f);
+
+        RectTransform panelRect = tutorialPanel.rectTransform;
+        panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+        panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+        panelRect.pivot = new Vector2(0.5f, 0.5f);
+        panelRect.anchoredPosition = Vector2.zero;
+        panelRect.sizeDelta = panelSize;
+        panelRect.localScale = Vector3.one;
+        panelRect.localRotation = Quaternion.identity;
+        tutorialPanel.color = tutorialPanelColor;
+        tutorialPanel.raycastTarget = false;
+
+        RectTransform accentRect = tutorialAccentBand.rectTransform;
+        accentRect.anchorMin = new Vector2(0.5f, 0.5f);
+        accentRect.anchorMax = new Vector2(0.5f, 0.5f);
+        accentRect.pivot = new Vector2(0.5f, 0.5f);
+        accentRect.anchoredPosition = new Vector2(0f, panelSize.y * 0.5f - 54f);
+        accentRect.sizeDelta = new Vector2(panelSize.x - 80f, showRules ? 58f : 44f);
+        accentRect.localScale = Vector3.one;
+        accentRect.localRotation = Quaternion.identity;
+        tutorialAccentBand.color = tutorialAccentColor;
+        tutorialAccentBand.raycastTarget = false;
+
+        ConfigureTutorialPanelBorder(tutorialTopBorder, new Vector2(0f, panelSize.y * 0.5f - 10f), new Vector2(panelSize.x - 26f, 4f));
+        ConfigureTutorialPanelBorder(tutorialBottomBorder, new Vector2(0f, -panelSize.y * 0.5f + 10f), new Vector2(panelSize.x - 26f, 4f));
+        ConfigureTutorialPanelBorder(tutorialLeftBorder, new Vector2(-panelSize.x * 0.5f + 10f, 0f), new Vector2(4f, panelSize.y - 26f));
+        ConfigureTutorialPanelBorder(tutorialRightBorder, new Vector2(panelSize.x * 0.5f - 10f, 0f), new Vector2(4f, panelSize.y - 26f));
+    }
+
+    private void ConfigureTutorialPanelBorder(Image border, Vector2 anchoredPosition, Vector2 size)
+    {
+        if (border == null)
+            return;
+
+        RectTransform rect = border.rectTransform;
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = size;
+        rect.localScale = Vector3.one;
+        rect.localRotation = Quaternion.identity;
+        border.color = tutorialBorderColor;
+        border.raycastTarget = false;
     }
 
     private void UpdatePhaseTwoOverlay()
@@ -657,9 +782,13 @@ public class BullfightHudController : MonoBehaviour
                 {
                     "Perfect!" => "\u4e0b\u4e00\u56de\u5408\u7834\u7dbb\u66f4\u5927",
                     "Good" => "\u4f60\u6210\u529f\u963b\u6b62\u4e86\u725b\u7684\u653b\u64ca",
-                    "Miss" => "\u4f60\u6c92\u80fd\u963b\u6b62\u725b\u7684\u653b\u64ca",
+                    "Miss" => gameFlow.IsPhaseTwoMissPauseActive
+                        ? gameFlow.CurrentPhaseTwoResolveNarration
+                        : "\u4f60\u6c92\u80fd\u963b\u6b62\u725b\u7684\u653b\u64ca",
                     _ => string.Empty
                 };
+                if (gameFlow.IsPhaseTwoMissPauseActive)
+                    statusText = "\u51b7\u975c 3 \u79d2\uff0c\u4e0b\u4e00\u56de\u5408\u5373\u5c07\u958b\u59cb";
                 break;
         }
     }
@@ -705,20 +834,53 @@ public class BullfightHudController : MonoBehaviour
         text.gameObject.SetActive(!string.IsNullOrEmpty(value));
     }
 
+    private void ConfigureTutorialBodyText(Text text, Vector2 anchoredPosition, Vector2 size, int fontSize, Color color, string value, bool useBestFit)
+    {
+        if (text == null)
+            return;
+
+        RectTransform rect = text.rectTransform;
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = anchoredPosition;
+        rect.sizeDelta = size;
+        rect.localScale = Vector3.one;
+        rect.localRotation = Quaternion.identity;
+        text.alignment = TextAnchor.UpperLeft;
+        text.fontSize = fontSize;
+        text.fontStyle = FontStyle.Normal;
+        text.color = color;
+        text.horizontalOverflow = HorizontalWrapMode.Wrap;
+        text.verticalOverflow = useBestFit ? VerticalWrapMode.Truncate : VerticalWrapMode.Overflow;
+        text.resizeTextForBestFit = useBestFit;
+        text.resizeTextMinSize = useBestFit ? 18 : fontSize;
+        text.resizeTextMaxSize = fontSize;
+        text.lineSpacing = useBestFit ? 0.88f : 1f;
+        text.text = value;
+        text.gameObject.SetActive(!string.IsNullOrEmpty(value));
+    }
+
     private static void SetBossSegmentVisible(Image segment, bool visible)
     {
         if (segment != null)
             segment.gameObject.SetActive(visible);
     }
 
-    private static string GetPhaseLabel(BullfightGameFlow.GamePhase phase)
+    private static string GetPhaseLabel(BullfightGameFlow.GamePhase phase, BullfightGameFlow.EndingType ending)
     {
         return phase switch
         {
             BullfightGameFlow.GamePhase.PhaseZeroTutorial => "\u7b2c0\u968e\u6bb5",
             BullfightGameFlow.GamePhase.PhaseOne => "\u968e\u6bb5\u4e00",
             BullfightGameFlow.GamePhase.PhaseTwo => "\u968e\u6bb5\u4e8c",
-            BullfightGameFlow.GamePhase.Ending => "\u7d50\u5c40\u6f14\u51fa",
+            BullfightGameFlow.GamePhase.Ending => ending switch
+            {
+                BullfightGameFlow.EndingType.Glory => "\u7d50\u5c40\u4e00\uff08\u725b\u6b7b\uff09",
+                BullfightGameFlow.EndingType.Tragedy => "\u7d50\u5c40\u4e8c\uff08\u73a9\u5bb6\u6b7b\uff09",
+                BullfightGameFlow.EndingType.Mercy => "\u7d50\u5c40\u4e09\uff0815\u79d2\u50f5\u6301\uff09",
+                _ => "\u7d50\u5c40\u6f14\u51fa"
+            },
             _ => "\u672a\u77e5\u968e\u6bb5"
         };
     }
@@ -772,6 +934,19 @@ public class BullfightHudController : MonoBehaviour
         text.verticalOverflow = VerticalWrapMode.Overflow;
         text.raycastTarget = false;
         return text;
+    }
+
+    private static void StretchToFullScreen(RectTransform rect)
+    {
+        if (rect == null)
+            return;
+
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+        rect.localScale = Vector3.one;
+        rect.localRotation = Quaternion.identity;
     }
 
     private void DisableLegacyShooterUiOnce()

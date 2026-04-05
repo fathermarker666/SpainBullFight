@@ -224,6 +224,14 @@ namespace InfimaGames.LowPolyShooterPack
 		protected override void Update()
 		{
 			ApplyJoystickLookAxes();
+			
+			// Bullfight mode uses a separate hand/combat pipeline.
+			// Keep shooter fire/aim inputs suppressed so trigger combos (ZL+ZR) never play gun effects.
+			if (ShouldSuppressWeaponActions())
+			{
+				holdingButtonAim = false;
+				holdingButtonFire = false;
+			}
 
 			//Match Aim.
 			aiming = holdingButtonAim && CanAim();
@@ -447,6 +455,8 @@ namespace InfimaGames.LowPolyShooterPack
 			GetComponent<PlayerStats>() != null ||
 			GetComponent<BullfightHandAnimatorController>() != null;
 
+		private bool ShouldSuppressWeaponActions() => UsesExternalHandAnimator();
+
 		private void CacheAnimatorCompatibility()
 		{
 			layerHolster = -1;
@@ -643,6 +653,12 @@ namespace InfimaGames.LowPolyShooterPack
 			if (!cursorLocked)
 				return;
 
+			if (ShouldSuppressWeaponActions())
+			{
+				holdingButtonFire = false;
+				return;
+			}
+
 			//Switch.
 			switch (context)
 			{
@@ -734,6 +750,12 @@ namespace InfimaGames.LowPolyShooterPack
 			//Block while the cursor is unlocked.
 			if (!cursorLocked)
 				return;
+
+			if (ShouldSuppressWeaponActions())
+			{
+				holdingButtonAim = false;
+				return;
+			}
 
 			//Switch.
 			switch (context.phase)

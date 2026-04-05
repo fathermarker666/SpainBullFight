@@ -24,6 +24,7 @@ public class BullfightPlayerController : MonoBehaviour
     public float capaBufferDuration = 0.35f;
     public float attackBufferDuration = 0.15f;
     public float phaseTwoStabBufferDuration = 0.2f;
+    [SerializeField] private float holdTriggerThreshold = 0.8f;
 
     private float capaBufferedUntil = -1f;
     private float attackBufferedUntil = -1f;
@@ -34,7 +35,6 @@ public class BullfightPlayerController : MonoBehaviour
     private FieldInfo holdingButtonRunField;
     private BullfightGameFlow gameFlow;
     private InputActionAsset runtimeBullfightActions;
-    private InputAction holdAction;
     private InputAction swingAction;
     private InputAction attackAction;
     private InputAction dashAction;
@@ -204,6 +204,48 @@ public class BullfightPlayerController : MonoBehaviour
         holdingButtonRunField?.SetValue(shooterCharacter, false);
     }
 
+    public float GetMovementInputMagnitude()
+    {
+        if (shooterCharacter == null)
+            ResolveReferencesIfNeeded();
+
+        if (shooterCharacter != null)
+            return shooterCharacter.GetInputMovement().magnitude;
+
+        return new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")).magnitude;
+    }
+
+    public float GetLookInputMagnitude()
+    {
+        if (shooterCharacter == null)
+            ResolveReferencesIfNeeded();
+
+        if (shooterCharacter != null)
+            return shooterCharacter.GetInputLook().magnitude;
+
+        return new Vector2(Input.GetAxisRaw("Mouse X"), Input.GetAxisRaw("Mouse Y")).magnitude;
+    }
+
+    public bool WasTutorialAdvancePressedThisFrame()
+    {
+        return WasAttackPressedThisFrame() ||
+               (Gamepad.current != null &&
+                (Gamepad.current.startButton.wasPressedThisFrame ||
+                 Gamepad.current.buttonSouth.wasPressedThisFrame));
+    }
+
+    public string GetMoveDisplayLabel() => "\u5de6\u6416\u687f";
+
+    public string GetLookDisplayLabel() => "\u53f3\u6416\u687f";
+
+    public string GetHoldDisplayLabel() => "ZL + ZR";
+
+    public string GetSwingDisplayLabel() => GetReadableGamepadBindingLabel(swingAction, "X");
+
+    public string GetDashDisplayLabel() => GetReadableGamepadBindingLabel(dashAction, "Y");
+
+    public string GetAttackDisplayLabel() => GetReadableGamepadBindingLabel(attackAction, "B");
+
     private void UpdateHoldingCloth()
     {
         if (playerStats == null)
@@ -241,7 +283,7 @@ public class BullfightPlayerController : MonoBehaviour
 
     private bool IsHoldPressed()
     {
-        return IsActionPressed(holdAction) || Input.GetKey(holdClothKey);
+        return AreHoldTriggersPressed();
     }
 
     private bool WasSwingPressedThisFrame()
@@ -327,7 +369,6 @@ public class BullfightPlayerController : MonoBehaviour
         runtimeBullfightActions = Instantiate(bullfightActionsAsset);
         runtimeBullfightActions.Enable();
 
-        holdAction = runtimeBullfightActions.FindAction("player/hold");
         swingAction = runtimeBullfightActions.FindAction("player/swing");
         attackAction = runtimeBullfightActions.FindAction("player/attack");
         dashAction = runtimeBullfightActions.FindAction("player/dash");
@@ -353,5 +394,50 @@ public class BullfightPlayerController : MonoBehaviour
     private bool IsPhaseTwoInputMode()
     {
         return gameFlow != null && gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseTwo;
+    }
+
+    private bool AreHoldTriggersPressed()
+    {
+        Gamepad gamepad = Gamepad.current;
+        if (gamepad == null)
+            return false;
+
+        return gamepad.leftTrigger.ReadValue() >= holdTriggerThreshold &&
+               gamepad.rightTrigger.ReadValue() >= holdTriggerThreshold;
+    }
+
+    private static string GetReadableGamepadBindingLabel(InputAction action, string fallback)
+    {
+        if (action == null)
+            return fallback;
+
+        for (int index = 0; index < action.bindings.Count; index++)
+        {
+            InputBinding binding = action.bindings[index];
+            if (binding.isComposite || binding.isPartOfComposite || string.IsNullOrWhiteSpace(binding.path))
+                continue;
+
+            if (!binding.path.Contains("<Gamepad>"))
+                continue;
+
+            if (binding.path.Contains("leftShoulder"))
+                return "LB";
+            if (binding.path.Contains("rightShoulder"))
+                return "RB";
+            if (binding.path.Contains("buttonWest"))
+                return "X";
+            if (binding.path.Contains("buttonEast"))
+                return "B";
+            if (binding.path.Contains("buttonNorth"))
+                return "Y";
+            if (binding.path.Contains("buttonSouth"))
+                return "A";
+            if (binding.path.Contains("leftStickPress"))
+                return "L3";
+            if (binding.path.Contains("rightStickPress"))
+                return "R3";
+        }
+
+        return fallback;
     }
 }

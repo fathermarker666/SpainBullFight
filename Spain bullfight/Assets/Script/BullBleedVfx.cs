@@ -112,6 +112,21 @@ public class BullBleedVfx : MonoBehaviour
         HandleDamaged(minDamageForHeavyBleed);
     }
 
+    public void ClearBleeds()
+    {
+        CleanupMissingBleeds();
+
+        for (int i = activeBleeds.Count - 1; i >= 0; i--)
+        {
+            if (activeBleeds[i] != null)
+                Destroy(activeBleeds[i]);
+        }
+
+        activeBleeds.Clear();
+        nextAnchorIndex = 0;
+        CacheAnchors();
+    }
+
     private GameObject SelectBleedPrefab(float damageTaken)
     {
         if (heavyBleedPrefab != null && boundStats != null && (damageTaken >= minDamageForHeavyBleed || boundStats.InFinalPhase))
