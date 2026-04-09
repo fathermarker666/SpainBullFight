@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 
 public class BullAI : MonoBehaviour
@@ -117,7 +117,6 @@ public class BullAI : MonoBehaviour
         animationView = new BullAIAnimationView(animator);
         chargeTelegraphView = new BullAIChargeTelegraphView(transform);
         bullStats = GetComponent<BullStats>() ?? gameObject.AddComponent<BullStats>();
-        _ = GetComponent<BullDebugOverlay>() ?? gameObject.AddComponent<BullDebugOverlay>();
         ConfigureRigidbody();
         EnsureChargeHitbox();
         ResolveReferencesIfNeeded();
@@ -1764,3 +1763,4 @@ public class BullAI : MonoBehaviour
         hasQueuedMoveRotation = false;
     }
 }
+

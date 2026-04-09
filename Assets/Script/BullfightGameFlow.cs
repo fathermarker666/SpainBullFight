@@ -234,6 +234,7 @@ public class BullfightGameFlow : MonoBehaviour
     public VideoClip tragedyEndingClip;
     public VideoClip mercyEndingClip;
     public float endingVideoDelay = 1.5f;
+    [Range(0f, 2f)] public float endingVideoVolume = 1.5f;
     public KeyCode endingSkipKey = KeyCode.B;
 
     [Header("Skybox")]
@@ -1994,7 +1995,11 @@ public class BullfightGameFlow : MonoBehaviour
         endingVideoPlayer.loopPointReached += HandleEndingVideoCompleted;
         endingVideoPlayer.isLooping = false;
         endingVideoPlayer.playOnAwake = false;
+        endingVideoPlayer.waitForFirstFrame = true;
+        endingVideoPlayer.skipOnDrop = false;
         endingVideoPlayer.clip = endingClip;
+        ConfigureEndingVideoAudio(endingClip);
+        audioController?.StopBGM();
 
         if (endingVideoPlayer.gameObject != null)
             endingVideoPlayer.gameObject.SetActive(true);
@@ -2055,6 +2060,28 @@ public class BullfightGameFlow : MonoBehaviour
             endingVideoPlayer.gameObject.SetActive(false);
 
         RestoreSceneAfterEndingPlayback();
+    }
+
+    private void ConfigureEndingVideoAudio(VideoClip endingClip)
+    {
+        if (endingVideoPlayer == null)
+            return;
+
+        endingVideoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
+
+        ushort audioTrackCount = endingClip != null ? endingClip.audioTrackCount : (ushort)0;
+        endingVideoPlayer.controlledAudioTrackCount = audioTrackCount;
+
+        float resolvedVolume = Mathf.Max(0f, endingVideoVolume);
+        if (audioController != null)
+            resolvedVolume *= Mathf.Lerp(0.85f, 1f, Mathf.Clamp01(audioController.SfxVolume));
+
+        for (ushort trackIndex = 0; trackIndex < audioTrackCount; trackIndex++)
+        {
+            endingVideoPlayer.EnableAudioTrack(trackIndex, true);
+            endingVideoPlayer.SetDirectAudioMute(trackIndex, false);
+            endingVideoPlayer.SetDirectAudioVolume(trackIndex, resolvedVolume);
+        }
     }
 
     private void HandleEndingVideoCompleted(VideoPlayer source)

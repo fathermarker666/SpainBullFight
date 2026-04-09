@@ -5889,10 +5889,11 @@ MonoBehaviour:
   audioController: {fileID: 0}
   arduinoTest: {fileID: 0}
   endingVideoPlayer: {fileID: 1655135286}
-  gloryEndingClip: {fileID: 32900000, guid: c221c245145fc2f4eace59083931e445, type: 3}
-  tragedyEndingClip: {fileID: 32900000, guid: 6396fb315dda0134aadda87562eef039, type: 3}
-  mercyEndingClip: {fileID: 32900000, guid: daeed147ab387df4c8a4e175b177ee88, type: 3}
+  gloryEndingClip: {fileID: 32900000, guid: 59116cd35fe328544ba2c8817cbdd825, type: 3}
+  tragedyEndingClip: {fileID: 32900000, guid: cd83ab1ce2ca1e84c8c3987e10ab7a56, type: 3}
+  mercyEndingClip: {fileID: 32900000, guid: 749058a7f5860f947af34b0eea208d26, type: 3}
   endingVideoDelay: 1.5
+  endingVideoVolume: 1
   endingSkipKey: 98
   phaseOneSkybox: {fileID: 2100000, guid: 4067de1a02072244798361060c5e7325, type: 2}
   phaseTwoSkybox: {fileID: 2100000, guid: 71f14a2d79f732f4d9893ef1b911f4ff, type: 2}
@@ -8631,15 +8632,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 89e0673b3ee61834f9dbfd26a418a20c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  panelRect:
-    serializedVersion: 2
-    x: 12
-    y: 12
-    width: 260
-    height: 172
-  fontSize: 11
-  showOverlay: 1
-  toggleKey: 284
 --- !u!4 &923243714 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 4785981426187249948, guid: 5f6d61d2445edd5469d8ad6483645d9f,
