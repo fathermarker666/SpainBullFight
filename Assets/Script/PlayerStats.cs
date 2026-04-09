@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Serialization;
@@ -48,7 +48,7 @@ public class PlayerStats : MonoBehaviour
     public float perfectDodgeStaminaRestore = 40f;
 
     [Header("Look")]
-    [SerializeField] private float lookSensitivityMultiplier = 0.72f;
+    [SerializeField] private float lookSensitivityMultiplier = 1.45f;
     [SerializeField] private float holdingClothLockYawSpeed = 7.5f;
     [SerializeField] private Vector3 gameplayViewEuler = new Vector3(-10f, 0f, 0f);
 
@@ -100,6 +100,12 @@ public class PlayerStats : MonoBehaviour
     private FieldInfo cameraLookSensitivityField;
     private FieldInfo cameraLookRotationCameraField;
     private FieldInfo cameraLookRotationCharacterField;
+    private bool mainMenuFrozen;
+    private bool hasMainMenuFrozenPose;
+    private Vector3 mainMenuFrozenPosition;
+    private Quaternion mainMenuFrozenRotation = Quaternion.identity;
+    private Quaternion mainMenuFrozenCameraRotation = Quaternion.identity;
+    public event Action OnDeath;
 
     [Header("Death Presentation")]
     [SerializeField] private Vector3 deathCameraEuler = new Vector3(-48f, 12f, 4f);
@@ -127,6 +133,8 @@ public class PlayerStats : MonoBehaviour
     public float StaminaNormalized => maxStamina <= 0f ? 0f : currentStamina / maxStamina;
     public float evadeCost => dashCost;
 
+    private bool deathEventRaised = false;
+
     private void Awake()
     {
         currentHealth = maxHealth;
@@ -143,7 +151,7 @@ public class PlayerStats : MonoBehaviour
         _ = GetComponent<BullfightProjectileThrower>() ?? gameObject.AddComponent<BullfightProjectileThrower>();
         _ = GetComponent<BullfightStaminaPreviewUI>() ?? gameObject.AddComponent<BullfightStaminaPreviewUI>();
         _ = GetComponent<BullfightStunVfx>() ?? gameObject.AddComponent<BullfightStunVfx>();
-        _ = GetComponent<BullfightAudioController>() ?? gameObject.AddComponent<BullfightAudioController>();
+        //_ = GetComponent<BullfightAudioController>() ?? gameObject.AddComponent<BullfightAudioController>();
         _ = GetComponent<BullfightPerfectDodgeVfx>() ?? gameObject.AddComponent<BullfightPerfectDodgeVfx>();
         stunVfx = GetComponent<BullfightStunVfx>();
         handAnimatorController = GetComponent<BullfightHandAnimatorController>();
@@ -153,6 +161,7 @@ public class PlayerStats : MonoBehaviour
         playerController?.ConfigureInputActions(bullfightActionsAsset);
         bullAI = FindObjectOfType<BullAI>(true);
         gameFlow = BullfightSceneCache.FindObject<BullfightGameFlow>();
+        lookSensitivityMultiplier = Mathf.Max(1.45f, lookSensitivityMultiplier);
         CachePresentationReferences();
         StabilizeFirstPersonPresentation();
         UpdateHealthBar();
@@ -160,17 +169,24 @@ public class PlayerStats : MonoBehaviour
 
     private void Start()
     {
-        // 強制再次校準數值
+        // 強制?�次?��??��?
         currentHealth = maxHealth;
         currentStamina = maxStamina;
 
-        // 立即更新一次 UI
+        // 立即?�新一�?UI
         UpdateUI();
 
     }
 
     private void Update()
     {
+        if (mainMenuFrozen)
+        {
+            EnforceMainMenuFrozenPose();
+            UpdateGamepadRumble();
+            return;
+        }
+
         UpdateStun();
         UpdateInvulnerability();
         UpdateDash();
@@ -183,6 +199,12 @@ public class PlayerStats : MonoBehaviour
         UpdateGamepadRumble();
         StabilizeFirstPersonPresentation();
         UpdateUI();
+    }
+
+    private void LateUpdate()
+    {
+        if (mainMenuFrozen)
+            EnforceMainMenuFrozenPose();
     }
 
     public bool CanAct()
@@ -296,27 +318,34 @@ public class PlayerStats : MonoBehaviour
 
     public void TakeDamage(float amount)
     {
-        // 只要有撞到，這行一定會印出來
-        Debug.Log("<color=orange>【碰撞偵測】牛撞過來了！</color>");
+        Debug.Log("<color=orange>���a����ˮ`</color>");
 
-        if (IsDead) { Debug.Log("扣血失敗：玩家已死亡"); return; }
+        if (IsDead) { Debug.Log("���a�w���`�A�����ˮ`"); return; }
 
         if (IsInvulnerable)
         {
-            Debug.Log($"扣血失敗：玩家處於無敵狀態 (剩餘時間: {invulnerabilityTimer})");
+            Debug.Log($"���a���˥��ѡA�ثe�L�Ĥ� (�Ѿl�ɶ�: {invulnerabilityTimer})");
             return;
         }
 
         currentHealth -= amount;
         currentHealth = Mathf.Clamp(currentHealth, 0f, maxHealth);
 
-        Debug.Log($"<color=red>【受傷成功】</color> HP 剩餘: {currentHealth}");
+        Debug.Log($"<color=red>���a����</color> HP �ѤU: {currentHealth}");
         stunVfx?.TriggerDamageFlash();
         OnDamaged?.Invoke(amount);
         PlayGamepadRumble(damageRumbleLow, damageRumbleHigh, damageRumbleDuration);
 
         if (IsDead)
+        {
+            if (!deathEventRaised)
+            {
+                deathEventRaised = true;
+                OnDeath?.Invoke();
+            }
+
             ApplyDeathPresentation();
+        }
     }
 
     public void TakeBullImpact(float amount, Vector3 impactSource)
@@ -377,6 +406,8 @@ public class PlayerStats : MonoBehaviour
         if (refillStamina)
             currentStamina = maxStamina;
 
+        deathEventRaised = false;
+
         SetHoldingCloth(false);
         ApplyPerfectDodgeBuffState(false);
         StopMovementImmediate();
@@ -414,6 +445,62 @@ public class PlayerStats : MonoBehaviour
         SetShooterControlEnabled(enabledState && !isStunned);
         if (enabledState && !isStunned && !isHoldingCloth)
             EnsureGameplayLookUnlocked();
+    }
+
+    public void SetMainMenuFrozen(bool frozen)
+    {
+        if (frozen)
+        {
+            shooterGameplayEnabled = false;
+            StopMovementImmediate();
+            SetShooterControlEnabled(false);
+            ApplyPerfectDodgeBuffState(false);
+            CacheMainMenuFrozenPose();
+            mainMenuFrozen = true;
+            return;
+        }
+
+        mainMenuFrozen = false;
+        hasMainMenuFrozenPose = false;
+        shooterGameplayEnabled = true;
+        SetShooterControlEnabled(!isStunned);
+        ApplyPerfectDodgeBuffState(perfectDodgeBuffTimer > 0f);
+
+        if (!isStunned && !isHoldingCloth)
+            EnsureGameplayLookUnlocked();
+    }
+
+    private void CacheMainMenuFrozenPose()
+    {
+        CachePresentationReferences();
+
+        mainMenuFrozenPosition = transform.position;
+        mainMenuFrozenRotation = transform.rotation;
+        mainMenuFrozenCameraRotation = firstPersonCamera != null ? firstPersonCamera.localRotation : Quaternion.identity;
+        hasMainMenuFrozenPose = true;
+    }
+
+    private void EnforceMainMenuFrozenPose()
+    {
+        if (!hasMainMenuFrozenPose)
+            CacheMainMenuFrozenPose();
+
+        if (rigidBody != null)
+        {
+            rigidBody.velocity = Vector3.zero;
+            rigidBody.angularVelocity = Vector3.zero;
+        }
+
+        transform.SetPositionAndRotation(mainMenuFrozenPosition, mainMenuFrozenRotation);
+
+        if (firstPersonCamera != null)
+            firstPersonCamera.localRotation = mainMenuFrozenCameraRotation;
+
+        if (cameraLookRotationCameraField != null && cameraLook != null)
+            cameraLookRotationCameraField.SetValue(cameraLook, mainMenuFrozenCameraRotation);
+
+        if (cameraLookRotationCharacterField != null && cameraLook != null)
+            cameraLookRotationCharacterField.SetValue(cameraLook, mainMenuFrozenRotation);
     }
 
     public void RewardPerfectDodge()
@@ -564,11 +651,11 @@ public class PlayerStats : MonoBehaviour
     }
     private void UpdateUI()
     {
-        // 更新血條百分比 (0.0 ~ 1.0)
+        // ?�新血條百?��? (0.0 ~ 1.0)
         if (healthBar != null)
             healthBar.value = HealthNormalized;
 
-        // 更新體力條百分比 (0.0 ~ 1.0)
+        // ?�新體�?條百?��? (0.0 ~ 1.0)
         if (staminaBar != null)
             staminaBar.value = StaminaNormalized;
     }
@@ -891,8 +978,7 @@ public class PlayerStats : MonoBehaviour
             hasCachedLookSensitivity = true;
         }
 
-        if (lookSensitivityApplied)
-            return;
+        cameraLookSensitivityField.SetValue(cameraLook, cachedLookSensitivity * Mathf.Max(0.05f, lookSensitivityMultiplier));
 
         cameraLookSensitivityField.SetValue(cameraLook, cachedLookSensitivity * Mathf.Max(0.05f, lookSensitivityMultiplier));
         lookSensitivityApplied = true;
@@ -926,3 +1012,6 @@ public class PlayerStats : MonoBehaviour
         Gamepad.current?.ResetHaptics();
     }
 }
+
+
+

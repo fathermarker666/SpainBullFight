@@ -4,29 +4,34 @@ using InfimaGames.LowPolyShooterPack;
 
 public class BullfightStunVfx : MonoBehaviour
 {
-    public PlayerStats playerStats;
+    [Header("References")]
+    [SerializeField] private PlayerStats playerStats;
 
     [Header("Visual")]
-    public float fadeSpeed = 6f;
-    public float grayAlpha = 0.5f;
-    public float vignetteAlpha = 0.82f;
-    public float damageFlashAlpha = 0.42f;
-    public float damageFlashFadeSpeed = 4.5f;
-    public float lowHealthThreshold = 0.25f;
-    public float lowHealthPulseSpeed = 1.8f;
-    public float lowHealthOverlayAlpha = 0.18f;
-    public Color lowHealthColor = new Color(0.92f, 0.22f, 0.22f, 1f);
+    [SerializeField] private float fadeSpeed = 6f;
+    [SerializeField] private float grayAlpha = 0.5f;
+    [SerializeField] private float vignetteAlpha = 0.82f;
+    [SerializeField] private float damageFlashAlpha = 0.42f;
+    [SerializeField] private float damageFlashFadeSpeed = 4.5f;
+    [SerializeField, Range(0f, 1f)] private float lowHealthThreshold = 0.25f;
+    [SerializeField] private float lowHealthPulseSpeed = 1.8f;
+    [SerializeField] private float lowHealthOverlayAlpha = 0.18f;
+    [SerializeField] private Color lowHealthColor = new Color(0.92f, 0.22f, 0.22f, 1f);
 
     [Header("Dizzy Feel")]
-    public float lingerDuration = 1.7f;
-    public float pulseFrequency = 2.1f;
-    public float vignetteOverscan = 1.18f;
-    public float shockDuration = 0.65f;
-    public float shockStrength = 1.1f;
-    public float cameraFovKick = 13f;
-    public float cameraFovWave = 7f;
-    public float cameraFovRecoverSpeed = 6f;
+    [SerializeField] private float lingerDuration = 1.7f;
+    [SerializeField] private float pulseFrequency = 2.1f;
+    [SerializeField] private float vignetteOverscan = 1.18f;
+    [SerializeField] private float shockDuration = 0.65f;
+    [SerializeField] private float shockStrength = 1.1f;
+    [SerializeField] private float cameraFovKick = 13f;
+    [SerializeField] private float cameraFovWave = 7f;
+    [SerializeField] private float cameraFovRecoverSpeed = 6f;
 
+    [Header("Overlay Layout")]
+    [SerializeField] private int overlaySortingOrder = 5000;
+    [SerializeField] private Vector2 overlayReferenceResolution = new Vector2(1920f, 1080f);
+    [SerializeField, Range(64, 1024)] private int vignetteTextureSize = 256;
     private Canvas overlayCanvas;
     private Image grayOverlay;
     private Image damageOverlay;
@@ -83,11 +88,11 @@ public class BullfightStunVfx : MonoBehaviour
 
         overlayCanvas = root.AddComponent<Canvas>();
         overlayCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        overlayCanvas.sortingOrder = 5000;
+        overlayCanvas.sortingOrder = overlaySortingOrder;
 
         CanvasScaler scaler = root.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.referenceResolution = overlayReferenceResolution;
         root.AddComponent<GraphicRaycaster>().enabled = false;
 
         GameObject gray = new GameObject("GrayOverlay");
@@ -162,7 +167,7 @@ public class BullfightStunVfx : MonoBehaviour
         if (vignetteTexture != null)
             return vignetteTexture;
 
-        const int size = 256;
+        int size = vignetteTextureSize;
         vignetteTexture = new Texture2D(size, size, TextureFormat.RGBA32, false);
         vignetteTexture.wrapMode = TextureWrapMode.Clamp;
 
@@ -315,6 +320,10 @@ public class BullfightPerfectDodgeVfx : MonoBehaviour
     [SerializeField] private float pulseSpeed = 2.4f;
     [SerializeField] private float overscan = 1.12f;
 
+    [Header("Overlay Layout")]
+    [SerializeField] private int overlaySortingOrder = 4900;
+    [SerializeField] private Vector2 overlayReferenceResolution = new Vector2(1920f, 1080f);
+    [SerializeField, Range(0f, 1f)] private float overlayMatchWidthOrHeight = 0.5f;
     private Canvas overlayCanvas;
     private RawImage streakOverlay;
     private RectTransform overlayRect;
@@ -374,13 +383,13 @@ public class BullfightPerfectDodgeVfx : MonoBehaviour
 
         overlayCanvas = root.AddComponent<Canvas>();
         overlayCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        overlayCanvas.sortingOrder = 4900;
+        overlayCanvas.sortingOrder = overlaySortingOrder;
 
         CanvasScaler scaler = root.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.referenceResolution = overlayReferenceResolution;
         scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
-        scaler.matchWidthOrHeight = 0.5f;
+        scaler.matchWidthOrHeight = overlayMatchWidthOrHeight;
 
         root.AddComponent<GraphicRaycaster>().enabled = false;
 

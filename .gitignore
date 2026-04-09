@@ -29,3 +29,16 @@ Thumbs.db
 __pkginspect/
 __restore_*/
 __pre_restore_*/
+__backup_assets_before_restore_*/
+__inspect_*/
+
+# Temporary recovery scenes
+*_recovered_*_temp.unity
+*_recovered_*_temp.unity.meta
+# Large local-only demo assets
+Assets/TerrainSampleAssets/Textures/
+Assets/TerrainSampleAssets/Textures.meta
+Assets/RPG MEDIEVAL PROPS/HD RENDER PIPELINE/
+Assets/RPG MEDIEVAL PROPS/HD RENDER PIPELINE.meta
+Assets/RPG MEDIEVAL PROPS/UNIVERSAL RENDER PIPELINE/
+Assets/RPG MEDIEVAL PROPS/UNIVERSAL RENDER PIPELINE.meta

@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using InfimaGames.LowPolyShooterPack;
@@ -26,9 +26,22 @@ public class BullfightPlayerController : MonoBehaviour
     public float phaseTwoStabBufferDuration = 0.2f;
     [SerializeField] private float holdTriggerThreshold = 0.8f;
 
+    [Header("Phase Two Sensor")]
+    [SerializeField] private float phaseTwoForceCap = 50f;
+    [SerializeField] private float phaseTwoStabThreshold = 35f;
+    [SerializeField] private float phaseTwoStabReleaseThreshold = 20f;
+    [SerializeField] private float phaseTwoWeakStabThreshold = 25f;
+    [SerializeField] private float phaseTwoCalibrationStableThreshold = 2f;
+    [SerializeField] private float phaseTwoSensorTimeout = 1.2f;
+
     private float capaBufferedUntil = -1f;
     private float attackBufferedUntil = -1f;
     private float phaseTwoStabBufferedUntil = -1f;
+    private float phaseTwoWeakStabBufferedUntil = -1f;
+    private float sensorPhaseTwoForce;
+    private float sensorPhaseTwoCalibrationForce;
+    private float sensorPhaseTwoPeakForce;
+    private float sensorPhaseTwoForceUpdatedAt = -999f;
     private bool dashSuppressed;
     private Character shooterCharacter;
     private FieldInfo axisMovementField;
@@ -42,7 +55,13 @@ public class BullfightPlayerController : MonoBehaviour
     private InputAction phaseTwoStabAction;
     private int sensorSwingFrame = -1;
     private int sensorPhaseTwoStabFrame = -1;
+    private int sensorPhaseTwoWeakStabFrame = -1;
     private bool sensorPhaseTwoCalibrationHeld;
+    private bool sensorPhaseTwoCalibrationReady;
+    private bool sensorPhaseTwoAttemptActive;
+    private bool sensorPhaseTwoStabLatched;
+    
+    private bool ultrasonicHoldActive;
 
     private void Awake()
     {
@@ -135,6 +154,41 @@ public class BullfightPlayerController : MonoBehaviour
         return IsPhaseTwoInputMode() && IsPhaseTwoCalibrationPressed();
     }
 
+    public float PhaseTwoForceCap => Mathf.Max(1f, phaseTwoForceCap);
+
+    public float PhaseTwoCalibrationStableThreshold => Mathf.Max(0f, phaseTwoCalibrationStableThreshold);
+
+    public float PhaseTwoStabThreshold => Mathf.Clamp(phaseTwoStabThreshold, 0f, PhaseTwoForceCap);
+
+    public float PhaseTwoWeakStabThreshold => Mathf.Clamp(Mathf.Max(25f, phaseTwoWeakStabThreshold), 0f, PhaseTwoStabThreshold);
+
+    public bool IsPhaseTwoSensorCalibrationReady() => sensorPhaseTwoCalibrationReady;
+
+    public bool HasRecentPhaseTwoSensorReading()
+    {
+        return Time.unscaledTime - sensorPhaseTwoForceUpdatedAt <= Mathf.Max(0.05f, phaseTwoSensorTimeout);
+    }
+
+    public float GetPhaseTwoSensorForce()
+    {
+        return HasRecentPhaseTwoSensorReading() ? sensorPhaseTwoForce : 0f;
+    }
+
+    public float GetPhaseTwoSensorCalibrationForce()
+    {
+        return HasRecentPhaseTwoSensorReading() ? sensorPhaseTwoCalibrationForce : 0f;
+    }
+
+    public float GetPhaseTwoSensorForceNormalized()
+    {
+        return Mathf.Clamp01(GetPhaseTwoSensorForce() / PhaseTwoForceCap);
+    }
+
+    public bool IsPhaseTwoSensorStable()
+    {
+        return HasRecentPhaseTwoSensorReading() && Mathf.Abs(GetPhaseTwoSensorCalibrationForce()) <= PhaseTwoCalibrationStableThreshold;
+    }
+
     public bool ConsumePhaseTwoStabPressed()
     {
         if (!IsPhaseTwoInputMode())
@@ -155,13 +209,30 @@ public class BullfightPlayerController : MonoBehaviour
         return IsPhaseTwoInputMode() && WasPhaseTwoStabPressedThisFrame();
     }
 
+    public bool ConsumePhaseTwoWeakStabPressed()
+    {
+        if (!IsPhaseTwoInputMode())
+        {
+            phaseTwoWeakStabBufferedUntil = -1f;
+            return false;
+        }
+
+        if (Time.time > phaseTwoWeakStabBufferedUntil)
+            return false;
+
+        phaseTwoWeakStabBufferedUntil = -1f;
+        return true;
+    }
+
     public void ClearInputBuffers()
     {
         capaBufferedUntil = -1f;
         attackBufferedUntil = -1f;
         phaseTwoStabBufferedUntil = -1f;
+        phaseTwoWeakStabBufferedUntil = -1f;
         sensorSwingFrame = -1;
         sensorPhaseTwoStabFrame = -1;
+        sensorPhaseTwoWeakStabFrame = -1;
     }
 
     public void ConfigureInputActions(InputActionAsset asset)
@@ -182,9 +253,91 @@ public class BullfightPlayerController : MonoBehaviour
         sensorSwingFrame = Time.frameCount;
     }
 
+    
+
     public void SetPhaseTwoCalibrationSensorHeld(bool held)
     {
         sensorPhaseTwoCalibrationHeld = held;
+    }
+
+    public void SetUltrasonicHoldActive(bool active)
+    {
+        ultrasonicHoldActive = active;
+    }
+
+    public void SetPhaseTwoSensorCalibrationReady(bool ready)
+    {
+        sensorPhaseTwoCalibrationReady = ready;
+        if (!ready)
+        {
+            sensorPhaseTwoForce = 0f;
+            sensorPhaseTwoCalibrationForce = 0f;
+            sensorPhaseTwoPeakForce = 0f;
+            sensorPhaseTwoForceUpdatedAt = -999f;
+            sensorPhaseTwoAttemptActive = false;
+            sensorPhaseTwoStabLatched = false;
+            sensorPhaseTwoStabFrame = -1;
+            sensorPhaseTwoWeakStabFrame = -1;
+        }
+    }
+
+    public void ResetPhaseTwoSensorState()
+    {
+        sensorPhaseTwoForce = 0f;
+        sensorPhaseTwoCalibrationForce = 0f;
+        sensorPhaseTwoPeakForce = 0f;
+        sensorPhaseTwoForceUpdatedAt = -999f;
+        sensorPhaseTwoCalibrationReady = false;
+        sensorPhaseTwoAttemptActive = false;
+        sensorPhaseTwoStabLatched = false;
+        sensorPhaseTwoStabFrame = -1;
+        sensorPhaseTwoWeakStabFrame = -1;
+        phaseTwoStabBufferedUntil = -1f;
+        phaseTwoWeakStabBufferedUntil = -1f;
+    }
+
+    public void SetPhaseTwoSensorReading(float calibrationSignal, float force)
+    {
+        bool hadRecentReading = HasRecentPhaseTwoSensorReading();
+        sensorPhaseTwoForce = Mathf.Clamp(force, 0f, PhaseTwoForceCap);
+        float clampedCalibrationSignal = Mathf.Clamp(calibrationSignal, -PhaseTwoForceCap, PhaseTwoForceCap);
+        sensorPhaseTwoCalibrationForce = hadRecentReading
+            ? Mathf.Lerp(sensorPhaseTwoCalibrationForce, clampedCalibrationSignal, 0.35f)
+            : clampedCalibrationSignal;
+        sensorPhaseTwoForceUpdatedAt = Time.unscaledTime;
+
+        float releaseThreshold = Mathf.Clamp(phaseTwoStabReleaseThreshold, 0f, PhaseTwoStabThreshold);
+        float weakThreshold = Mathf.Clamp(PhaseTwoWeakStabThreshold, Mathf.Max(0.5f, PhaseTwoCalibrationStableThreshold + 0.5f), Mathf.Max(0.5f, PhaseTwoStabThreshold - 0.5f));
+
+        if (!IsPhaseTwoInputMode() || !sensorPhaseTwoCalibrationReady)
+            return;
+
+        if (sensorPhaseTwoForce >= weakThreshold)
+        {
+            sensorPhaseTwoAttemptActive = true;
+            sensorPhaseTwoPeakForce = Mathf.Max(sensorPhaseTwoPeakForce, sensorPhaseTwoForce);
+        }
+
+        if (!sensorPhaseTwoStabLatched && sensorPhaseTwoPeakForce >= PhaseTwoStabThreshold)
+        {
+            sensorPhaseTwoStabLatched = true;
+            sensorPhaseTwoStabFrame = Time.frameCount;
+        }
+
+        if (sensorPhaseTwoForce > releaseThreshold)
+            return;
+
+        if (sensorPhaseTwoAttemptActive && !sensorPhaseTwoStabLatched && sensorPhaseTwoPeakForce >= weakThreshold)
+            sensorPhaseTwoWeakStabFrame = Time.frameCount;
+
+        sensorPhaseTwoAttemptActive = false;
+        sensorPhaseTwoPeakForce = 0f;
+        sensorPhaseTwoStabLatched = false;
+    }
+
+    public void SetPhaseTwoSensorForce(float force)
+    {
+        SetPhaseTwoSensorReading(force, Mathf.Abs(force));
     }
 
     public void TriggerPhaseTwoStab()
@@ -279,11 +432,14 @@ public class BullfightPlayerController : MonoBehaviour
     {
         if (WasPhaseTwoStabPressedThisFrame())
             phaseTwoStabBufferedUntil = Time.time + phaseTwoStabBufferDuration;
+
+        if (WasPhaseTwoWeakStabPressedThisFrame())
+            phaseTwoWeakStabBufferedUntil = Time.time + phaseTwoStabBufferDuration;
     }
 
     private bool IsHoldPressed()
     {
-        return AreHoldTriggersPressed();
+        return AreHoldTriggersPressed() || ultrasonicHoldActive;
     }
 
     private bool WasSwingPressedThisFrame()
@@ -309,6 +465,11 @@ public class BullfightPlayerController : MonoBehaviour
     private bool WasPhaseTwoStabPressedThisFrame()
     {
         return WasSensorTriggeredThisFrame(sensorPhaseTwoStabFrame) || WasActionPressedThisFrame(phaseTwoStabAction) || Input.GetKeyDown(phaseTwoStabKey);
+    }
+
+    private bool WasPhaseTwoWeakStabPressedThisFrame()
+    {
+        return WasSensorTriggeredThisFrame(sensorPhaseTwoWeakStabFrame);
     }
 
     private bool WasSensorTriggeredThisFrame(int triggeredFrame)
@@ -441,3 +602,9 @@ public class BullfightPlayerController : MonoBehaviour
         return fallback;
     }
 }
+
+
+
+
+
+

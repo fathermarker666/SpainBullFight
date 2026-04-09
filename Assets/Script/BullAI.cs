@@ -33,13 +33,16 @@ public class BullAI : MonoBehaviour
 
     private float stateTimer, lastHitTime = -999f, engageTimer, attackRecoveryTimer, chargeStartedAt = -999f, telegraphStartDistance, telegraphTimer, chargeDuration, circlingAngle, circlingDirection = 1f, currentHorizontalMotion, autoAttackTimer, chargeQteTimer, chargeQteDuration;
     private float plannedChargeDistance, chargeLaneHalfWidth, displayedTelegraphTravelDistance;
-    private bool timingActive, canDamagePlayerThisCharge, pendingCircleReset, hasRoamTarget, hasQueuedMovePosition, hasQueuedMoveRotation, autoAttackPending, autoAttackCommitted, isPlayerInsideChargeLane, dashedThisCharge, impactCirclesAfterCharge, chargeHasEligibleTarget, chargeQteResolved, chargeResultAllowsDamage, chargeMissCommitActive, externalChargeTimingControl;
+    private bool timingActive, canDamagePlayerThisCharge, pendingCircleReset, hasRoamTarget, hasQueuedMovePosition, hasQueuedMoveRotation, autoAttackPending, autoAttackCommitted, isPlayerInsideChargeLane, dashedThisCharge, impactCirclesAfterCharge, chargeHasEligibleTarget, chargeQteResolved, chargeResultAllowsDamage, chargeMissCommitActive, externalChargeTimingControl, phaseTwoChargeMotionActive;
     private bool tutorialControlActive, tutorialChargeDamageEnabled, tutorialChargeSequenceActive, tutorialChargeSequenceComplete, tutorialChargeHitPlayer, tutorialChargeUsesTiming;
     private string tutorialChargeResult = string.Empty;
     private Animator animator; private BullAIAnimationView animationView; private BullAIChargeTelegraphView chargeTelegraphView; private Vector3 chargeStartPosition, chargeDirection = Vector3.forward, roamCenter, roamTarget, circlingCenter, queuedMovePosition; private Quaternion queuedMoveRotation;
     private Rigidbody bullRigidbody; private Collider bullCollider, playerCollider; private BullChargeHitbox chargeHitbox;
     private readonly Collider[] chargeLaneOverlapResults = new Collider[8];
     private BullfightGameFlow linkedGameFlow;
+    private float locomotionBlendTimer = 0f;
+    private const float LocomotionHoldTime = 0.12f;
+    private const float AnimationMotionThreshold = 0.05f;
 
     public bool CanDamagePlayerThisCharge => canDamagePlayerThisCharge;
     public bool CanReceiveChargeTimingInput => currentState == BullState.Charging && timingActive;
@@ -47,6 +50,55 @@ public class BullAI : MonoBehaviour
     public bool IsTutorialChargeSequenceComplete => tutorialChargeSequenceComplete;
     public bool DidTutorialChargeHitPlayer => tutorialChargeHitPlayer;
     public string TutorialChargeResult => tutorialChargeResult;
+
+    public void StartPhaseTwoChargeAtPlayer(float desiredDuration = -1f)
+    {
+        if (player == null)
+            ResolveReferencesIfNeeded();
+
+        currentState = BullState.Charging;
+        ResetChargeQteState();
+        canDamagePlayerThisCharge = false;
+        chargeResultAllowsDamage = false;
+        chargeStartPosition = GetCurrentBullPosition();
+        chargeStartedAt = Time.time;
+
+        Vector3 targetPoint = player != null ? player.position : transform.position + transform.forward;
+        if (playerStats != null && playerStats.TryGetFirstPersonCameraPoint(out Vector3 cameraPoint))
+            targetPoint = cameraPoint;
+
+        chargeDirection = targetPoint - GetCurrentBullPosition();
+        chargeDirection.y = 0f;
+
+        if (chargeDirection.sqrMagnitude <= 0.0001f)
+            chargeDirection = transform.forward.sqrMagnitude > 0.0001f ? transform.forward.normalized : Vector3.forward;
+
+        chargeDirection.Normalize();
+
+        Quaternion chargeRotation = Quaternion.LookRotation(chargeDirection, Vector3.up);
+        if (bullRigidbody != null)
+        {
+            bullRigidbody.rotation = chargeRotation;
+            bullRigidbody.angularVelocity = Vector3.zero;
+        }
+
+        transform.rotation = chargeRotation;
+        queuedMoveRotation = chargeRotation;
+        hasQueuedMoveRotation = true;
+
+        float resolvedDuration = desiredDuration > 0f ? Mathf.Max(0.2f, desiredDuration) : -1f;
+        plannedChargeDistance = resolvedDuration > 0f
+            ? Mathf.Clamp(GetChargeSpeed() * resolvedDuration, minimumChargeTravelDistance, maxChargeDistance)
+            : GetPlannedChargeDistance(HorizontalDistanceToPlayer());
+        chargeDuration = resolvedDuration > 0f ? resolvedDuration : GetChargeTimingDuration(plannedChargeDistance);
+        stateTimer = chargeDuration;
+        displayedTelegraphTravelDistance = plannedChargeDistance;
+        chargeLaneHalfWidth = GetChargeLaneHalfWidth();
+        dashedThisCharge = false;
+        phaseTwoChargeMotionActive = true;
+
+        HideChargeTelegraph();
+    }
 
     private void Awake()
     {
@@ -97,6 +149,22 @@ public class BullAI : MonoBehaviour
             KeepInsideArena();
             SnapToGround(false);
             UpdateAnimation();
+            return;
+        }
+
+        if (gameFlow != null && gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseTwo)
+        {
+            KeepInsideArena();
+            if (phaseTwoChargeMotionActive && currentState == BullState.Charging)
+            {
+                UpdatePhaseTwoChargeMotion();
+                SnapToGround(false);
+                UpdateAnimation();
+            }
+            else
+            {
+                SnapToGround(false);
+            }
             return;
         }
 
@@ -608,7 +676,7 @@ public class BullAI : MonoBehaviour
                 (gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseZeroTutorial ||
                  gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseOne))
             {
-                timingScript.SetTimingWindow(0.5f, 0.75f);
+                timingScript.SetTimingWindow(0.5f, 0.7f);
             }
         }
 
@@ -677,8 +745,13 @@ public class BullAI : MonoBehaviour
 
     private void MoveCharge(float speed)
     {
+        MoveCharge(speed, Time.deltaTime);
+    }
+
+    private void MoveCharge(float speed, float deltaTime)
+    {
         Vector3 current = GetCurrentBullPosition();
-        Vector3 next = current + (chargeDirection * speed * Time.deltaTime);
+        Vector3 next = current + (chargeDirection * speed * Mathf.Max(0f, deltaTime));
         next.y = current.y;
         QueueMovePosition(next);
     }
@@ -756,6 +829,11 @@ public class BullAI : MonoBehaviour
     private float GetArenaRadius() => spawnManager != null ? spawnManager.ArenaRadius : roamingRadius + 3.5f;
 
     private static float HorizontalDistance(Vector3 a, Vector3 b) => Vector2.Distance(new Vector2(a.x, a.z), new Vector2(b.x, b.z));
+
+    private bool HasQueuedHorizontalMovementIntent()
+    {
+        return hasQueuedMovePosition && HorizontalDistance(GetCurrentBullPosition(), queuedMovePosition) > 0.01f;
+    }
 
     private void UpdateChargeLaneOccupancy()
     {
@@ -984,9 +1062,32 @@ public class BullAI : MonoBehaviour
 
     private void UpdateAnimation()
     {
-        bool isMovingHorizontally = currentHorizontalMotion > 0.02f;
+        bool hasMoveIntent =
+            currentState == BullState.Roaming ||
+            currentState == BullState.Engaging ||
+            currentState == BullState.Telegraphing ||
+            currentState == BullState.Charging ||
+            currentState == BullState.CirclingReset;
+
+        Vector3 currentPosePosition = GetImmediateBullPosition();
+        float queuedHorizontalMotion = hasQueuedMovePosition
+            ? HorizontalDistance(currentPosePosition, queuedMovePosition) / Mathf.Max(Time.deltaTime, 0.0001f)
+            : 0f;
+        float resolvedHorizontalMotion = Mathf.Max(currentHorizontalMotion, queuedHorizontalMotion);
+        bool isActuallyMoving = resolvedHorizontalMotion > AnimationMotionThreshold;
+        bool hasQueuedLocomotion = hasQueuedMovePosition && queuedHorizontalMotion > 0.01f;
+
+        if (isActuallyMoving)
+            locomotionBlendTimer = LocomotionHoldTime;
+        else
+            locomotionBlendTimer = Mathf.Max(0f, locomotionBlendTimer - Time.deltaTime);
+
+        bool isMovingHorizontally = isActuallyMoving || (hasMoveIntent && locomotionBlendTimer > 0f);
+        if (!isMovingHorizontally && hasQueuedLocomotion)
+            isMovingHorizontally = true;
+
         animationView ??= new BullAIAnimationView(animator);
-        animationView.PlayState(currentState, isMovingHorizontally);
+        animationView.PlayState(this, isMovingHorizontally);
     }
 
     private bool HasMissingReferences()
@@ -1055,7 +1156,7 @@ public class BullAI : MonoBehaviour
 
     public void ResetCombatState()
     {
-        currentState = BullState.Roaming; stateTimer = 0f; ResetChargeQteState(); pendingCircleReset = false; engageTimer = engageDelay; lastHitTime = -999f; chargeStartedAt = -999f; chargeStartPosition = GetCurrentBullPosition(); chargeDirection = transform.forward.sqrMagnitude > 0.0001f ? transform.forward.normalized : Vector3.forward; animationView?.Reset(); roamCenter = GetArenaCenter(); hasRoamTarget = false; attackRecoveryTimer = 1.25f; plannedChargeDistance = 0f; displayedTelegraphTravelDistance = 0f; chargeLaneHalfWidth = 0f; dashedThisCharge = false; ClearAutoAttackState(); ScheduleNextAutoAttack(); HideChargeTelegraph();
+        currentState = BullState.Roaming; stateTimer = 0f; ResetChargeQteState(); pendingCircleReset = false; engageTimer = engageDelay; lastHitTime = -999f; chargeStartedAt = -999f; chargeStartPosition = GetCurrentBullPosition(); chargeDirection = transform.forward.sqrMagnitude > 0.0001f ? transform.forward.normalized : Vector3.forward; animationView?.Reset(); roamCenter = GetArenaCenter(); hasRoamTarget = false; attackRecoveryTimer = 1.25f; plannedChargeDistance = 0f; displayedTelegraphTravelDistance = 0f; chargeLaneHalfWidth = 0f; dashedThisCharge = false; currentHorizontalMotion = 0f; phaseTwoChargeMotionActive = false; locomotionBlendTimer = 0f; ClearAutoAttackState(); ScheduleNextAutoAttack(); HideChargeTelegraph();
         tutorialChargeDamageEnabled = false;
         tutorialChargeSequenceActive = false;
         tutorialChargeSequenceComplete = false;
@@ -1070,7 +1171,7 @@ public class BullAI : MonoBehaviour
 
     private void EnterDeathState()
     {
-        currentState = BullState.Dead; ResetChargeQteState(); pendingCircleReset = false; hasRoamTarget = false; stateTimer = 0f; attackRecoveryTimer = 999f; ClearAutoAttackState(); HideChargeTelegraph();
+        currentState = BullState.Dead; ResetChargeQteState(); pendingCircleReset = false; hasRoamTarget = false; stateTimer = 0f; attackRecoveryTimer = 999f; phaseTwoChargeMotionActive = false; ClearAutoAttackState(); HideChargeTelegraph();
         if (timingScript != null) timingScript.HideImmediate();
         if (bullRigidbody != null) bullRigidbody.velocity = Vector3.zero;
     }
@@ -1329,7 +1430,7 @@ public class BullAI : MonoBehaviour
                 (gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseZeroTutorial ||
                  gameFlow.currentPhase == BullfightGameFlow.GamePhase.PhaseOne))
             {
-                timingScript.SetTimingWindow(0.5f, 0.75f);
+                timingScript.SetTimingWindow(0.5f, 0.7f);
             }
 
             if (!externalControl)
@@ -1631,10 +1732,28 @@ public class BullAI : MonoBehaviour
         chargeHitbox.Initialize(this);
     }
 
-    private Vector3 GetCurrentBullPosition() => hasQueuedMovePosition ? queuedMovePosition : (bullRigidbody != null ? bullRigidbody.position : transform.position);
+    private Vector3 GetCurrentBullPosition() => hasQueuedMovePosition ? queuedMovePosition : GetImmediateBullPosition();
+    private Vector3 GetImmediateBullPosition() => bullRigidbody != null ? bullRigidbody.position : transform.position;
     private Quaternion GetCurrentBullRotation() => hasQueuedMoveRotation ? queuedMoveRotation : (bullRigidbody != null ? bullRigidbody.rotation : transform.rotation);
     private void QueueMovePosition(Vector3 nextPosition) { queuedMovePosition = nextPosition; hasQueuedMovePosition = true; }
     private void QueueMoveRotation(Quaternion nextRotation) { queuedMoveRotation = nextRotation; hasQueuedMoveRotation = true; }
+
+    private void UpdatePhaseTwoChargeMotion()
+    {
+        MoveCharge(GetChargeSpeed(), Time.unscaledDeltaTime);
+
+        if (!dashedThisCharge && playerStats != null && playerStats.LastDashTime >= chargeStartedAt)
+            dashedThisCharge = true;
+
+        stateTimer -= Time.unscaledDeltaTime;
+        if (stateTimer > 0f && HorizontalDistance(chargeStartPosition, GetCurrentBullPosition()) < plannedChargeDistance)
+            return;
+
+        phaseTwoChargeMotionActive = false;
+        currentState = BullState.Idle;
+        stateTimer = 0f;
+        HideChargeTelegraph();
+    }
 
     private void CommitQueuedPoseImmediate()
     {

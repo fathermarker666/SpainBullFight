@@ -357,6 +357,21 @@ public class BullfightHandAnimatorController : MonoBehaviour
         SwitchState(HandState.Death, restart: true);
     }
 
+    public void PlayPhaseTwoStabAnimation()
+    {
+        if (handAnimator == null || !bindingsCached)
+        {
+            ResolveReferencesIfNeeded();
+            EnsureRigSetupIfNeeded(true);
+            CacheBindings();
+        }
+
+        if (handAnimator == null || !bindingsCached)
+            return;
+
+        PlayTransient(HandState.UseSword);
+    }
+
     private void PlayTransient(HandState state)
     {
         if (!bindings.TryGetValue(state, out StateBinding binding))

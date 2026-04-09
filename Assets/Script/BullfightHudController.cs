@@ -5,6 +5,7 @@ using UnityEngine.UI;
 [DefaultExecutionOrder(-250)]
 public class BullfightHudController : MonoBehaviour
 {
+    private static Font cachedUiFont;
     [SerializeField] private string hudCanvasName = "HUD_Canvas";
     [SerializeField] private string legacyHudCanvasName = "P_LPSP_UI_Canvas";
     [SerializeField] private string legacyHudCanvasCloneName = "P_LPSP_UI_Canvas(Clone)";
@@ -12,6 +13,10 @@ public class BullfightHudController : MonoBehaviour
     [SerializeField] private string staminaBarName = "StaminaBar";
     [SerializeField] private string playerHealthLabelName = "PlayerHealthLabel";
     [SerializeField] private string playerStaminaLabelName = "PlayerStaminaLabel";
+    [SerializeField] private string phaseTwoForceBarName = "PhaseTwoForceBar";
+    [SerializeField] private string phaseTwoForceLabelName = "PhaseTwoForceLabel";
+    [SerializeField] private string phaseTwoForceValueName = "PhaseTwoForceValue";
+    [SerializeField] private string phaseTwoForceThresholdMarkerName = "PhaseTwoForceThresholdMarker";
     [SerializeField] private string bullHealthBarName = "BullHealthBar";
     [SerializeField] private string weaponAmmoName = "Weapon & Ammo";
     [SerializeField] private string ammoName = "Ammo";
@@ -62,12 +67,18 @@ public class BullfightHudController : MonoBehaviour
     [SerializeField] private Vector2 staminaBarOffset = new Vector2(24f, 22f);
     [SerializeField] private Vector2 playerHealthLabelOffset = new Vector2(0f, 8f);
     [SerializeField] private Vector2 playerStaminaLabelOffset = new Vector2(0f, 0f);
+    [SerializeField] private Vector2 phaseTwoForceBarSize = new Vector2(188f, 26f);
+    [SerializeField] private Vector2 phaseTwoForceLabelOffset = new Vector2(0f, 2f);
+    [SerializeField] private Vector2 phaseTwoForceValueOffset = new Vector2(0f, 0f);
+    [SerializeField] private Vector2 phaseTwoForceValueSize = new Vector2(188f, 52f);
     [SerializeField] private Vector2 bullBossRootSize = new Vector2(860f, 84f);
     [SerializeField] private Vector2 bullBossRootOffset = new Vector2(0f, -10f);
     [SerializeField] private Vector2 bullHealthBarSize = new Vector2(720f, 30f);
     [SerializeField] private Vector2 bullHealthBarOffset = new Vector2(0f, -12f);
     [SerializeField] private int bullBossTitleFontSize = 28;
     [SerializeField] private int playerBarLabelFontSize = 16;
+    [SerializeField] private int phaseTwoForceLabelFontSize = 19;
+    [SerializeField] private int phaseTwoForceValueFontSize = 24;
     [SerializeField] private Vector2 phaseRootSize = new Vector2(220f, 52f);
     [SerializeField] private Vector2 phaseRootOffset = new Vector2(-28f, -24f);
     [SerializeField] private Vector2 phaseAccentSize = new Vector2(140f, 3f);
@@ -79,8 +90,8 @@ public class BullfightHudController : MonoBehaviour
     [SerializeField] private Vector2 phaseTwoStatusPosition = new Vector2(0f, -64f);
     [SerializeField] private Vector2 phaseTwoRoundPosition = new Vector2(0f, -74f);
     [SerializeField] private Vector2 phaseTwoScorePosition = new Vector2(0f, -102f);
-    [SerializeField] private Vector2 tutorialOverlaySize = new Vector2(1040f, 220f);
-    [SerializeField] private Vector2 tutorialRulesOverlaySize = new Vector2(1880f, 1060f);
+    [SerializeField] private Vector2 tutorialOverlaySize = new Vector2(1196f, 238f);
+    [SerializeField] private Vector2 tutorialRulesOverlaySize = new Vector2(2162f, 1060f);
     [SerializeField] private Vector2 tutorialTitlePosition = new Vector2(0f, 34f);
     [SerializeField] private Vector2 tutorialInstructionPosition = new Vector2(0f, -10f);
     [SerializeField] private Vector2 tutorialStatusPosition = new Vector2(0f, -58f);
@@ -114,6 +125,7 @@ public class BullfightHudController : MonoBehaviour
     private RectTransform hudCanvasRect;
     private Slider playerHealthSlider;
     private Slider playerStaminaSlider;
+    private Slider phaseTwoForceSlider;
     private Slider bullHealthSlider;
     private RectTransform bullBossRoot;
     private Image bullBossSegmentLeft;
@@ -139,8 +151,13 @@ public class BullfightHudController : MonoBehaviour
     private Text tutorialInstruction;
     private Text tutorialStatus;
     private Text tutorialBody;
+    private Text phaseTwoForceLabel;
+    private Text phaseTwoForceValue;
+    private Image phaseTwoForceThresholdMarker;
     private Color cachedBullFillColor;
+    private Color cachedPlayerStaminaFillColor;
     private bool hasCachedBullFillColor;
+    private bool hasCachedPlayerStaminaFillColor;
     private bool layoutDirty = true;
     private bool legacyUiDisabled;
 
@@ -156,6 +173,7 @@ public class BullfightHudController : MonoBehaviour
 
     private void Awake()
     {
+        Application.targetFrameRate = 60;
         DontDestroyOnLoad(gameObject);
         SceneManager.sceneLoaded += OnSceneLoaded;
         MarkLayoutDirty();
@@ -187,6 +205,7 @@ public class BullfightHudController : MonoBehaviour
         hudCanvasRect = null;
         playerHealthSlider = null;
         playerStaminaSlider = null;
+        phaseTwoForceSlider = null;
         bullHealthSlider = null;
         bullBossRoot = null;
         bullBossSegmentLeft = null;
@@ -212,7 +231,11 @@ public class BullfightHudController : MonoBehaviour
         tutorialInstruction = null;
         tutorialStatus = null;
         tutorialBody = null;
+        phaseTwoForceLabel = null;
+        phaseTwoForceValue = null;
+        phaseTwoForceThresholdMarker = null;
         hasCachedBullFillColor = false;
+        hasCachedPlayerStaminaFillColor = false;
         legacyUiDisabled = false;
         layoutDirty = true;
     }
@@ -254,6 +277,8 @@ public class BullfightHudController : MonoBehaviour
         RemoveStaminaSegments(playerStaminaSlider);
         PlacePlayerBarLabel(playerHealthSlider, playerHealthLabelName, "\u73a9\u5bb6hp", playerHealthLabelColor, playerHealthLabelOffset * playerHudScale);
         PlacePlayerBarLabel(playerStaminaSlider, playerStaminaLabelName, "\u73a9\u5bb6\u9ad4\u529b", playerStaminaLabelColor, playerStaminaLabelOffset * playerHudScale);
+        CachePlayerStaminaFillColor();
+        EnsurePhaseTwoForceUi();
         PlaceBullHealthBar(bullHealthSlider);
         EnsurePhaseDisplayUi();
         EnsurePhaseTwoOverlayUi();
@@ -332,6 +357,99 @@ public class BullfightHudController : MonoBehaviour
         label.fontStyle = FontStyle.Bold;
         label.color = labelColor;
         label.text = labelText;
+    }
+
+    private void CachePlayerStaminaFillColor()
+    {
+        if (playerStaminaSlider == null || hasCachedPlayerStaminaFillColor)
+            return;
+
+        Image fillImage = playerStaminaSlider.fillRect != null ? playerStaminaSlider.fillRect.GetComponent<Image>() : null;
+        if (fillImage == null)
+            return;
+
+        cachedPlayerStaminaFillColor = fillImage.color;
+        hasCachedPlayerStaminaFillColor = true;
+    }
+
+    private void EnsurePhaseTwoForceUi()
+    {
+        if (hudCanvasRect == null || playerStaminaSlider == null)
+            return;
+
+        if (phaseTwoForceSlider == null)
+            phaseTwoForceSlider = GetOrCloneSlider(hudCanvasRect, playerStaminaSlider, phaseTwoForceBarName);
+
+        if (phaseTwoForceSlider == null)
+            return;
+
+        PlaceSlider(phaseTwoForceSlider, staminaBarOffset * playerHudScale, phaseTwoForceBarSize * playerHudScale);
+        phaseTwoForceSlider.interactable = false;
+        phaseTwoForceSlider.direction = Slider.Direction.LeftToRight;
+        phaseTwoForceSlider.minValue = 0f;
+        phaseTwoForceSlider.maxValue = 1f;
+        phaseTwoForceSlider.value = 0f;
+
+        Transform clonedStaminaLabel = phaseTwoForceSlider.transform.Find(playerStaminaLabelName);
+        if (clonedStaminaLabel != null && clonedStaminaLabel.name != phaseTwoForceLabelName)
+            clonedStaminaLabel.gameObject.SetActive(false);
+
+        Image fillImage = phaseTwoForceSlider.fillRect != null ? phaseTwoForceSlider.fillRect.GetComponent<Image>() : null;
+        if (fillImage != null)
+            fillImage.color = hasCachedPlayerStaminaFillColor ? cachedPlayerStaminaFillColor : playerStaminaLabelColor;
+
+        phaseTwoForceThresholdMarker = GetOrCreateUiImage(phaseTwoForceSlider.transform as RectTransform, phaseTwoForceThresholdMarkerName);
+        if (phaseTwoForceThresholdMarker != null)
+        {
+            RectTransform markerRect = phaseTwoForceThresholdMarker.rectTransform;
+            float thresholdRatio = Mathf.Clamp01(35f / 50f);
+            Vector2 scaledBarSize = phaseTwoForceBarSize * playerHudScale;
+            markerRect.anchorMin = Vector2.zero;
+            markerRect.anchorMax = Vector2.zero;
+            markerRect.pivot = new Vector2(0.5f, 0.5f);
+            markerRect.anchoredPosition = new Vector2(scaledBarSize.x * thresholdRatio, scaledBarSize.y * 0.5f);
+            markerRect.sizeDelta = new Vector2(8f, scaledBarSize.y + 16f);
+            markerRect.localScale = Vector3.one;
+            markerRect.localRotation = Quaternion.identity;
+            phaseTwoForceThresholdMarker.color = new Color(1f, 0.82f, 0.16f, 1f);
+            phaseTwoForceThresholdMarker.raycastTarget = false;
+        }
+
+        phaseTwoForceLabel = GetOrCreateUiText(phaseTwoForceSlider.transform as RectTransform, phaseTwoForceLabelName);
+        if (phaseTwoForceLabel != null)
+        {
+            RectTransform labelRect = phaseTwoForceLabel.rectTransform;
+            labelRect.anchorMin = new Vector2(0f, 1f);
+            labelRect.anchorMax = new Vector2(0f, 1f);
+            labelRect.pivot = new Vector2(0f, 0f);
+            labelRect.anchoredPosition = phaseTwoForceLabelOffset * playerHudScale;
+            labelRect.sizeDelta = playerBarLabelBaseSize * playerHudScale;
+            labelRect.localScale = Vector3.one;
+            labelRect.localRotation = Quaternion.identity;
+            phaseTwoForceLabel.alignment = TextAnchor.LowerLeft;
+            phaseTwoForceLabel.fontSize = Mathf.RoundToInt(phaseTwoForceLabelFontSize * playerHudScale);
+            phaseTwoForceLabel.fontStyle = FontStyle.Bold;
+            phaseTwoForceLabel.color = playerStaminaLabelColor;
+            phaseTwoForceLabel.text = "\u529b\u9053";
+        }
+
+        phaseTwoForceValue = GetOrCreateUiText(phaseTwoForceSlider.transform as RectTransform, phaseTwoForceValueName);
+        if (phaseTwoForceValue != null)
+        {
+            RectTransform valueRect = phaseTwoForceValue.rectTransform;
+            valueRect.anchorMin = new Vector2(0.5f, 0.5f);
+            valueRect.anchorMax = new Vector2(0.5f, 0.5f);
+            valueRect.pivot = new Vector2(0.5f, 0.5f);
+            valueRect.anchoredPosition = phaseTwoForceValueOffset * playerHudScale;
+            valueRect.sizeDelta = phaseTwoForceValueSize * playerHudScale;
+            valueRect.localScale = Vector3.one;
+            valueRect.localRotation = Quaternion.identity;
+            phaseTwoForceValue.alignment = TextAnchor.MiddleCenter;
+            phaseTwoForceValue.fontSize = Mathf.RoundToInt(phaseTwoForceValueFontSize * playerHudScale);
+            phaseTwoForceValue.fontStyle = FontStyle.Bold;
+            phaseTwoForceValue.color = playerStaminaLabelColor;
+            phaseTwoForceValue.text = "0";
+        }
     }
 
     private void PlaceBullHealthBar(Slider slider)
@@ -560,6 +678,7 @@ public class BullfightHudController : MonoBehaviour
         UpdatePhaseTwoOverlay();
         UpdateBossRoundInfo();
         UpdatePhaseTwoBars();
+        UpdatePhaseTwoForceUi();
         UpdateBullHealthStyling();
     }
 
@@ -698,6 +817,40 @@ public class BullfightHudController : MonoBehaviour
             bullHealthSlider.value = gameFlow.GetPhaseTwoBullHealthNormalized();
     }
 
+    private void UpdatePhaseTwoForceUi()
+    {
+        bool showForceUi = gameFlow != null && gameFlow.ShouldShowPhaseTwoOverlay();
+
+        if (playerStaminaSlider != null)
+            playerStaminaSlider.gameObject.SetActive(!showForceUi);
+
+        Transform playerStaminaLabelTransform = playerStaminaSlider != null
+            ? playerStaminaSlider.transform.Find(playerStaminaLabelName)
+            : null;
+        if (playerStaminaLabelTransform != null)
+            playerStaminaLabelTransform.gameObject.SetActive(!showForceUi);
+
+        if (phaseTwoForceSlider != null)
+            phaseTwoForceSlider.gameObject.SetActive(showForceUi);
+
+        if (phaseTwoForceLabel != null)
+            phaseTwoForceLabel.gameObject.SetActive(showForceUi);
+
+        if (phaseTwoForceValue != null)
+            phaseTwoForceValue.gameObject.SetActive(showForceUi);
+
+        if (phaseTwoForceThresholdMarker != null)
+            phaseTwoForceThresholdMarker.gameObject.SetActive(showForceUi);
+
+        if (!showForceUi || gameFlow == null || phaseTwoForceSlider == null)
+            return;
+
+        phaseTwoForceSlider.value = gameFlow.PhaseTwoCurrentForceNormalized;
+
+        if (phaseTwoForceValue != null)
+            phaseTwoForceValue.text = Mathf.RoundToInt(gameFlow.PhaseTwoCurrentForce).ToString();
+    }
+
     private void UpdateBullHealthStyling()
     {
         if (bullHealthSlider == null)
@@ -733,14 +886,25 @@ public class BullfightHudController : MonoBehaviour
                 titleText = "\u968e\u6bb5\u4e8c";
                 subtitleText = gameFlow.IsPhaseTwoQuestionVisible ? "\u771f\u7684\u53ea\u6709\u6bba\u4e86\u4ed6\u9019\u500b\u8fa6\u6cd5\u55ce?" : string.Empty;
                 break;
+            case BullfightGameFlow.PhaseTwoState.Tutorial:
+                titleText = "\u968e\u6bb5\u4e8c\uff1a\u523a\u64ca\u6559\u5b78";
+                subtitleText = "\u5148\u7a69\u5b9a\u6301\u528d\u5b8c\u6210\u6821\u6e96\uff0c\u6821\u6e96\u5f8c\u8981\u5728\u523a\u64ca\u6642\u6a5f\u5167\u5411\u524d\u523a\u51fa\u3002\u6210\u529f\u8207\u5426\u4ecd\u4ee5\u529b\u9053\u9580\u6abb\u8207 QTE \u5224\u5b9a\u70ba\u6e96\u3002";
+                statusText = gameFlow.IsPhaseTwoTutorialAdvanceReady
+                    ? "\u8b80\u5b8c\u5f8c\u6309\u78ba\u8a8d\u7e7c\u7e8c\u6821\u6e96"
+                    : $"\u8acb\u5148\u8b80\u5b8c\u523a\u64ca\u6d41\u7a0b... {Mathf.CeilToInt(gameFlow.PhaseTwoTutorialSecondsRemaining)}s";
+                break;
             case BullfightGameFlow.PhaseTwoState.Calibration:
-                titleText = "\u6821\u6e96";
-                subtitleText = "\u6309\u4f4f G \u6821\u6e96";
-                statusText = $"{Mathf.RoundToInt(gameFlow.PhaseTwoCalibrationProgress * 100f)}%";
+                titleText = $"\u7b2c {gameFlow.PhaseTwoUpcomingRoundIndex} / {gameFlow.PhaseTwoMaxRounds} \u56de\u5408\u6821\u6e96";
+                subtitleText = string.IsNullOrWhiteSpace(gameFlow.CurrentPhaseTwoCalibrationLine)
+                    ? "\u6301\u528d\u4e0d\u52d5 5 \u79d2\u6821\u6e96"
+                    : gameFlow.CurrentPhaseTwoCalibrationLine;
+                statusText = string.IsNullOrWhiteSpace(gameFlow.CurrentPhaseTwoCalibrationStatus)
+                    ? $"\u6301\u528d\u4e0d\u52d5 5 \u79d2\u6821\u6e96  {Mathf.RoundToInt(gameFlow.PhaseTwoCalibrationProgress * 100f)}%"
+                    : gameFlow.CurrentPhaseTwoCalibrationStatus;
                 break;
             case BullfightGameFlow.PhaseTwoState.Standoff:
                 titleText = "\u5c0d\u5cd9";
-                subtitleText = "\u4fdd\u6301\u6c89\u9ed8 15 \u79d2\uff0c\u6216\u6309 E \u6253\u7834\u5c0d\u5cd9";
+                subtitleText = "\u4fdd\u6301\u6c89\u9ed8 15 \u79d2\uff0c\u6216\u529b\u9053\u8d85\u904e 35 \u6253\u7834\u5c0d\u5cd9";
                 statusText = $"{Mathf.CeilToInt(gameFlow.PhaseTwoMercyTimeRemaining)}s";
                 break;
             case BullfightGameFlow.PhaseTwoState.RoundPrepare:
@@ -757,7 +921,7 @@ public class BullfightHudController : MonoBehaviour
                     else
                     {
                         subtitleText = string.IsNullOrWhiteSpace(gameFlow.CurrentPhaseTwoReflectionLine)
-                            ? "\u7b49\u5f85\u725b\u9732\u51fa\u7834\u7dbb\uff0c\u7136\u5f8c\u6309 E \u523a\u64ca"
+                            ? "\u7b49\u5f85\u725b\u9732\u51fa\u7834\u7dbb\uff0c\u7136\u5f8c\u529b\u9053\u8d85\u904e 35 \u523a\u64ca"
                             : gameFlow.CurrentPhaseTwoReflectionLine;
                         statusText = gameFlow.CurrentRoundHasPerfectAdvantage
                             ? "\u4e0a\u4e00\u64ca\u7559\u4e0b\u7684\u7834\u7dbb\u9084\u5728\u64f4\u5927..."
@@ -766,7 +930,7 @@ public class BullfightHudController : MonoBehaviour
                 }
                 else
                 {
-                    subtitleText = "\u73fe\u5728\u6309 E \u523a\u64ca";
+                    subtitleText = "\u73fe\u5728\u529b\u9053\u8d85\u904e 35 \u523a\u64ca";
                     statusText = "\u73fe\u5728\u51fa\u624b";
                 }
                 break;
@@ -929,11 +1093,41 @@ public class BullfightHudController : MonoBehaviour
         rect.SetParent(parent, false);
 
         Text text = go.GetComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = GetUiFont();
         text.horizontalOverflow = HorizontalWrapMode.Overflow;
         text.verticalOverflow = VerticalWrapMode.Overflow;
         text.raycastTarget = false;
         return text;
+    }
+
+    private static Font GetUiFont()
+    {
+        if (cachedUiFont != null)
+            return cachedUiFont;
+
+        cachedUiFont = Font.CreateDynamicFontFromOSFont(new[]
+        {
+            "Microsoft JhengHei UI",
+            "Microsoft JhengHei",
+            "Arial",
+            "Segoe UI"
+        }, 18);
+
+        return cachedUiFont;
+    }
+
+    private static Slider GetOrCloneSlider(RectTransform parent, Slider template, string objectName)
+    {
+        if (parent == null || template == null)
+            return null;
+
+        Transform existing = parent.Find(objectName);
+        if (existing != null)
+            return existing.GetComponent<Slider>();
+
+        GameObject clone = Instantiate(template.gameObject, parent, false);
+        clone.name = objectName;
+        return clone.GetComponent<Slider>();
     }
 
     private static void StretchToFullScreen(RectTransform rect)

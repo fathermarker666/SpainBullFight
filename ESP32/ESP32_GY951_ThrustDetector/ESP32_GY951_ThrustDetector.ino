@@ -1,20 +1,21 @@
 #include <Wire.h>
 
 /*
-  ESP32 DevKit V1 + GY-951 (MPU9250/MPU6500 compatible registers)
+  ESP32 DevKit V1 + GY-521 / MPU6050
 
   Wiring:
-  - GY-951 VCC -> 3V3
-  - GY-951 GND -> GND
-  - GY-951 SDA -> GPIO21
-  - GY-951 SCL -> GPIO22
-  - GY-951 AD0 -> GND (I2C address 0x68)
+  - VCC -> 3V3
+  - GND -> GND
+  - SDA -> GPIO21
+  - SCL -> GPIO22
+  - AD0 -> GND (I2C address 0x68)
 
   Serial commands:
-  - "CAL" : run 1000 ms static calibration
+  - "CAL" : capture a new resting baseline
 
   Serial output:
   - "READY"
+  - "FORCE:<0-50>"
   - "THRUST_DETECTED"
 */
 
@@ -22,14 +23,16 @@ namespace Config {
 constexpr uint8_t kSensorAddress = 0x68;
 constexpr uint8_t kSdaPin = 21;
 constexpr uint8_t kSclPin = 22;
-constexpr uint32_t kSerialBaud = 4800;            // Match the current Unity serial test script.
+constexpr uint32_t kSerialBaud = 4800;
 constexpr uint32_t kI2cClock = 400000;
-constexpr uint32_t kSampleIntervalMs = 10;        // 100 Hz
-constexpr uint32_t kCalibrationDurationMs = 1000; // 1000 ms
+constexpr uint32_t kSampleIntervalMs = 50;        // 20 Hz keeps 4800 baud stable.
+constexpr uint32_t kCalibrationDurationMs = 350;  // Fast zeroing; Unity handles the 5 s hold.
 constexpr float kAccelScaleLsbPerG = 16384.0f;    // +-2g
-constexpr float kThrustThresholdMultiplier = 4.0f;
-constexpr float kReleaseHysteresisRatio = 0.5f;
-constexpr float kMinimumNoiseBandG = 0.01f;
+constexpr float kMinimumNoiseBandG = 0.015f;
+constexpr float kForceScale = 40.0f;
+constexpr float kForceCap = 50.0f;
+constexpr float kThrustThreshold = 35.0f;
+constexpr float kReleaseThreshold = 18.0f;
 }
 
 namespace MpuReg {
@@ -62,9 +65,9 @@ unsigned long gLastSampleMs = 0;
 unsigned long gCalibrationStartMs = 0;
 float gAccelYOffset = 0.0f;
 float gNoiseBandY = Config::kMinimumNoiseBandG;
-bool gCalibrationReady = false;
-bool gThrustLatched = false;
+float gLastForce = 0.0f;
 bool gSensorReady = false;
+bool gThrustLatched = false;
 
 bool writeRegister(uint8_t reg, uint8_t value) {
   Wire.beginTransmission(Config::kSensorAddress);
@@ -73,7 +76,7 @@ bool writeRegister(uint8_t reg, uint8_t value) {
   return Wire.endTransmission() == 0;
 }
 
-bool readRegisters(uint8_t startReg, uint8_t *buffer, size_t length) {
+bool readRegisters(uint8_t startReg, uint8_t* buffer, size_t length) {
   Wire.beginTransmission(Config::kSensorAddress);
   Wire.write(startReg);
   if (Wire.endTransmission(false) != 0) {
@@ -93,7 +96,7 @@ bool readRegisters(uint8_t startReg, uint8_t *buffer, size_t length) {
   return true;
 }
 
-bool readAccelY(float &accelYG) {
+bool readAccelY(float& accelYG) {
   uint8_t buffer[6];
   if (!readRegisters(MpuReg::kAccelXoutH, buffer, sizeof(buffer))) {
     return false;
@@ -110,7 +113,6 @@ bool initSensor() {
     return false;
   }
 
-  // Continue for MPU9250/9255/6500-compatible devices as long as I2C responds.
   if (!writeRegister(MpuReg::kPwrMgmt1, 0x01)) {
     return false;
   }
@@ -141,42 +143,47 @@ void startCalibration() {
   resetCalibrationStats();
   gCalibrationStartMs = millis();
   gMode = RunMode::Calibrating;
-  gCalibrationReady = false;
   gThrustLatched = false;
+  gLastForce = 0.0f;
 }
 
 void finishCalibration() {
   if (gCalibration.sampleCount == 0) {
     gMode = RunMode::Idle;
-    gCalibrationReady = false;
     return;
   }
 
   gAccelYOffset = gCalibration.sumY / static_cast<float>(gCalibration.sampleCount);
   const float positiveNoise = gCalibration.maxY - gAccelYOffset;
   const float negativeNoise = gAccelYOffset - gCalibration.minY;
-  gNoiseBandY = max(positiveNoise, negativeNoise);
-  gNoiseBandY = max(gNoiseBandY, Config::kMinimumNoiseBandG);
-
+  gNoiseBandY = max(max(positiveNoise, negativeNoise), Config::kMinimumNoiseBandG);
   gMode = RunMode::Monitoring;
-  gCalibrationReady = true;
   gThrustLatched = false;
+  gLastForce = 0.0f;
   Serial.println("READY");
 }
 
-void processMonitoringSample(float accelYG) {
-  if (!gCalibrationReady) {
-    return;
-  }
-
+float computeForce(float accelYG) {
   const float delta = fabsf(accelYG - gAccelYOffset);
-  const float triggerThreshold = gNoiseBandY * Config::kThrustThresholdMultiplier;
-  const float releaseThreshold = triggerThreshold * Config::kReleaseHysteresisRatio;
+  const float adjustedDelta = max(0.0f, delta - gNoiseBandY);
+  const float scaledForce = adjustedDelta * Config::kForceScale;
+  return min(Config::kForceCap, scaledForce);
+}
 
-  if (!gThrustLatched && delta > triggerThreshold) {
+void emitForce(float force) {
+  Serial.print("FORCE:");
+  Serial.println(force, 1);
+}
+
+void processMonitoringSample(float accelYG) {
+  const float force = computeForce(accelYG);
+  gLastForce = force;
+  emitForce(force);
+
+  if (!gThrustLatched && force >= Config::kThrustThreshold) {
     gThrustLatched = true;
     Serial.println("THRUST_DETECTED");
-  } else if (gThrustLatched && delta < releaseThreshold) {
+  } else if (gThrustLatched && force <= Config::kReleaseThreshold) {
     gThrustLatched = false;
   }
 }
@@ -262,7 +269,10 @@ void setup() {
 
   if (!gSensorReady) {
     Serial.println("SENSOR_INIT_FAILED");
+    return;
   }
+
+  startCalibration();
 }
 
 void loop() {
@@ -274,4 +284,3 @@ void loop() {
 
   updateSensorTask();
 }
-

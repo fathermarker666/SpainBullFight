@@ -4,21 +4,20 @@ using UnityEngine;
 public class BullBleedVfx : MonoBehaviour
 {
     [Header("References")]
-    public BullStats bullStats;
-    public GameObject woundBleedPrefab;
-    public GameObject heavyBleedPrefab;
+    [SerializeField] private BullStats bullStats;
+    [SerializeField] private GameObject woundBleedPrefab;
+    [SerializeField] private GameObject heavyBleedPrefab;
 
     [Header("Behaviour")]
-    public int maxPersistentBleeds = 4;
-    public float minDamageForHeavyBleed = 40f;
-    public float outwardOffset = 0.08f;
-    public float verticalOffset = 0.03f;
-    public float randomYawJitter = 16f;
-    public Vector2 randomScaleRange = new Vector2(0.92f, 1.08f);
+    [SerializeField, Range(1, 12)] private int maxPersistentBleeds = 4;
+    [SerializeField, Range(0f, 100f)] private float minDamageForHeavyBleed = 40f;
+    [SerializeField, Range(0f, 0.5f)] private float outwardOffset = 0.08f;
+    [SerializeField, Range(0f, 0.5f)] private float verticalOffset = 0.03f;
+    [SerializeField, Range(0f, 45f)] private float randomYawJitter = 16f;
+    [SerializeField] private Vector2 randomScaleRange = new Vector2(0.92f, 1.08f);
 
     [Header("Preferred Anchors")]
-    public string[] preferredAnchorNames = new[]
-    {
+    [SerializeField] private string[] preferredAnchorNames = new[]    {
         "Spine_04",
         "Spine_03",
         "Spine_05",

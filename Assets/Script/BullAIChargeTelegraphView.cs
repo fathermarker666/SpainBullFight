@@ -3,17 +3,29 @@ using UnityEngine.Rendering;
 
 public sealed class BullAIChargeTelegraphView
 {
+    private static readonly int[] FillTriangles = { 0, 1, 2, 0, 2, 3 };
+    private static readonly Vector2[] FillUvs =
+    {
+        new Vector2(0f, 0f),
+        new Vector2(0f, 1f),
+        new Vector2(1f, 1f),
+        new Vector2(1f, 0f)
+    };
+
     private readonly Transform owner;
+    private readonly Material configuredFillMaterial;
+    private readonly Vector3[] fillVertices = new Vector3[4];
     private LineRenderer disabledLegacyLine;
     private MeshFilter chargeTelegraphFillFilter;
     private MeshRenderer chargeTelegraphFillRenderer;
     private Mesh chargeTelegraphFillMesh;
-
-    public BullAIChargeTelegraphView(Transform owner)
+    private Material runtimeFillMaterial;
+    private bool fillMeshInitialized;
+    public BullAIChargeTelegraphView(Transform owner, Material fillMaterial = null)
     {
         this.owner = owner;
+        configuredFillMaterial = fillMaterial;
     }
-
     public void Hide()
     {
         if (disabledLegacyLine != null)
@@ -73,8 +85,19 @@ public sealed class BullAIChargeTelegraphView
             chargeTelegraphFillRenderer.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
             chargeTelegraphFillRenderer.lightProbeUsage = LightProbeUsage.Off;
             chargeTelegraphFillRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
-            chargeTelegraphFillRenderer.sharedMaterial = new Material(Shader.Find("Sprites/Default"));
+            runtimeFillMaterial = configuredFillMaterial != null
+                ? Object.Instantiate(configuredFillMaterial)
+                : new Material(Shader.Find("Sprites/Default"));
+            chargeTelegraphFillRenderer.sharedMaterial = runtimeFillMaterial;
             chargeTelegraphFillRenderer.enabled = false;
+        }
+
+        if (!fillMeshInitialized && chargeTelegraphFillMesh != null)
+        {
+            chargeTelegraphFillMesh.vertices = fillVertices;
+            chargeTelegraphFillMesh.triangles = FillTriangles;
+            chargeTelegraphFillMesh.uv = FillUvs;
+            fillMeshInitialized = true;
         }
 
         Material fillMaterial = chargeTelegraphFillRenderer.sharedMaterial;
@@ -87,29 +110,13 @@ public sealed class BullAIChargeTelegraphView
         if (chargeTelegraphFillFilter == null || chargeTelegraphFillRenderer == null || chargeTelegraphFillMesh == null)
             return;
 
-        Vector3[] vertices =
-        {
-            owner.InverseTransformPoint(backLeft),
-            owner.InverseTransformPoint(frontLeft),
-            owner.InverseTransformPoint(frontRight),
-            owner.InverseTransformPoint(backRight)
-        };
+        fillVertices[0] = owner.InverseTransformPoint(backLeft);
+        fillVertices[1] = owner.InverseTransformPoint(frontLeft);
+        fillVertices[2] = owner.InverseTransformPoint(frontRight);
+        fillVertices[3] = owner.InverseTransformPoint(backRight);
 
-        int[] triangles = { 0, 1, 2, 0, 2, 3 };
-        Vector2[] uvs =
-        {
-            new Vector2(0f, 0f),
-            new Vector2(0f, 1f),
-            new Vector2(1f, 1f),
-            new Vector2(1f, 0f)
-        };
-
-        chargeTelegraphFillMesh.Clear();
-        chargeTelegraphFillMesh.vertices = vertices;
-        chargeTelegraphFillMesh.triangles = triangles;
-        chargeTelegraphFillMesh.uv = uvs;
+        chargeTelegraphFillMesh.vertices = fillVertices;
         chargeTelegraphFillMesh.RecalculateBounds();
-        chargeTelegraphFillMesh.RecalculateNormals();
 
         Material fillMaterial = chargeTelegraphFillRenderer.sharedMaterial;
         if (fillMaterial != null)

@@ -5,6 +5,13 @@ using UnityEngine.Rendering.PostProcessing;
 
 public class BullfightPhaseTwoPresentation : MonoBehaviour
 {
+    [Header("References")]
+    [SerializeField] private Camera targetCamera;
+    [SerializeField] private Light directionalLight;
+    [SerializeField] private Light spotLight;
+    [SerializeField] private PostProcessLayer postProcessLayer;
+    [SerializeField] private PostProcessResources postProcessResources;
+
     [Header("Post Processing")]
     [SerializeField] private float vignetteIntensity = 0.4f;
     [SerializeField] private float vignetteSmoothness = 0.75f;
@@ -19,17 +26,17 @@ public class BullfightPhaseTwoPresentation : MonoBehaviour
     [SerializeField] private Color phaseTwoAmbientEquatorColor = new Color(0.11f, 0.04f, 0.04f, 1f);
     [SerializeField] private Color phaseTwoAmbientGroundColor = new Color(0.05f, 0.02f, 0.02f, 1f);
     [SerializeField] private Color phaseTwoDirectionalTint = new Color(1f, 0.68f, 0.58f, 1f);
+    [SerializeField] private float phaseOneSpotLightIntensity = 5f;
+    [SerializeField] private float phaseTwoSpotLightIntensity = 50f;
 
     [Header("Resources")]
     [SerializeField] private string editorPostProcessResourcesPath = "Packages/com.unity.postprocessing/PostProcessing/PostProcessResources.asset";
+    [SerializeField] private string runtimeVolumeObjectName = "BullfightPhaseTwoVolume";
+    [SerializeField] private float runtimeVolumePriority = 100f;
+    [SerializeField, Range(0f, 1f)] private float runtimeVolumeWeight = 1f;
 
-    private Camera targetCamera;
-    private Light directionalLight;
-    private PostProcessLayer postProcessLayer;
     private PostProcessVolume postProcessVolume;
     private PostProcessProfile runtimeProfile;
-    private PostProcessResources postProcessResources;
-
     private AmbientMode cachedAmbientMode;
     private float cachedAmbientIntensity;
     private Color cachedAmbientSkyColor;
@@ -59,6 +66,9 @@ public class BullfightPhaseTwoPresentation : MonoBehaviour
 
     public void ExitPhaseTwo()
     {
+        EnsureReferences();
+        ApplyPhaseOneSpotLight();
+
         if (!phaseTwoActive && !hasCachedLighting && !hasCachedLayerSettings)
             return;
 
@@ -94,6 +104,20 @@ public class BullfightPhaseTwoPresentation : MonoBehaviour
 
         if (directionalLight == null)
             directionalLight = RenderSettings.sun != null ? RenderSettings.sun : FindObjectOfType<Light>(true);
+
+        if (spotLight == null)
+        {
+            Light[] sceneLights = FindObjectsOfType<Light>(true);
+            for (int i = 0; i < sceneLights.Length; i++)
+            {
+                Light candidate = sceneLights[i];
+                if (candidate != null && candidate.type == LightType.Spot && candidate.name == "Spot Light")
+                {
+                    spotLight = candidate;
+                    break;
+                }
+            }
+        }
     }
 
     private void CacheLightingState()
@@ -141,6 +165,9 @@ public class BullfightPhaseTwoPresentation : MonoBehaviour
         RenderSettings.ambientEquatorColor = phaseTwoAmbientEquatorColor;
         RenderSettings.ambientGroundColor = phaseTwoAmbientGroundColor;
 
+        if (spotLight != null)
+            spotLight.intensity = phaseTwoSpotLightIntensity;
+
         if (directionalLight == null)
             return;
 
@@ -178,13 +205,13 @@ public class BullfightPhaseTwoPresentation : MonoBehaviour
     {
         if (postProcessVolume == null)
         {
-            GameObject volumeObject = new GameObject("BullfightPhaseTwoVolume");
+            GameObject volumeObject = new GameObject(runtimeVolumeObjectName);
             volumeObject.transform.SetParent(transform, false);
             volumeObject.layer = gameObject.layer;
             postProcessVolume = volumeObject.AddComponent<PostProcessVolume>();
             postProcessVolume.isGlobal = true;
-            postProcessVolume.priority = 100f;
-            postProcessVolume.weight = 1f;
+            postProcessVolume.priority = runtimeVolumePriority;
+            postProcessVolume.weight = runtimeVolumeWeight;
         }
 
         if (runtimeProfile == null)
@@ -196,7 +223,8 @@ public class BullfightPhaseTwoPresentation : MonoBehaviour
 
         postProcessVolume.gameObject.layer = gameObject.layer;
         postProcessVolume.sharedProfile = runtimeProfile;
-        postProcessVolume.weight = 1f;
+        postProcessVolume.priority = runtimeVolumePriority;
+        postProcessVolume.weight = runtimeVolumeWeight;
     }
 
     private void ConfigureProfile(PostProcessProfile profile)
@@ -237,6 +265,12 @@ public class BullfightPhaseTwoPresentation : MonoBehaviour
         }
 
         hasCachedLighting = false;
+    }
+
+    private void ApplyPhaseOneSpotLight()
+    {
+        if (spotLight != null)
+            spotLight.intensity = phaseOneSpotLightIntensity;
     }
 
     private void RestorePostProcessing()

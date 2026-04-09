@@ -6,6 +6,8 @@ public class BullDebugOverlay : MonoBehaviour
 {
     [SerializeField] private Rect panelRect = new Rect(12f, 12f, 260f, 172f);
     [SerializeField] private int fontSize = 11;
+    [SerializeField] private bool showOverlay = true;
+    [SerializeField] private KeyCode toggleKey = KeyCode.F3;
 
     private readonly StringBuilder debugBuilder = new StringBuilder(320);
     private BullAI bullAI;
@@ -24,8 +26,17 @@ public class BullDebugOverlay : MonoBehaviour
         handAnimatorController = BullfightSceneCache.FindObject<BullfightHandAnimatorController>();
     }
 
+    private void Update()
+    {
+        if (Input.GetKeyDown(toggleKey))
+            showOverlay = !showOverlay;
+    }
+
     private void OnGUI()
     {
+        if (!showOverlay)
+            return;
+
         if (Event.current == null || Event.current.type != EventType.Repaint)
             return;
 
