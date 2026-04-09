@@ -1,16 +1,19 @@
 ﻿using UnityEngine;
 using UnityEngine.EventSystems;
+using System.Collections;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 public class BullfightStartMenu : MonoBehaviour
 {
+    private static Font cachedFont;
+
     [Header("Text")]
-    [SerializeField] private string titleText = "\u897f\u73ed\u7259\u9b25\u725b";
-    [SerializeField] private string subtitleText = "\u7b2c\u4e00\u4eba\u7a31\u9b25\u725b\u9ad4\u9a57";
-    [SerializeField] private string startButtonText = "\u958b\u59cb\u904a\u6232";
-    [SerializeField] private string tutorialButtonText = "\u65b0\u624b\u6559\u5b78";
-    [SerializeField] private string hintText = "\u9078\u64c7\u300c\u958b\u59cb\u904a\u6232\u300d\u6216\u300c\u65b0\u624b\u6559\u5b78\u300d";
+    [SerializeField] private string titleText = "西班牙鬥牛";
+    [SerializeField] private string subtitleText = "第一人稱鬥牛體驗";
+    [SerializeField] private string startButtonText = "開始遊戲";
+    [SerializeField] private string tutorialButtonText = "新手教學";
+    [SerializeField] private string hintText = "選擇「開始遊戲」或「新手教學」";
 
     [Header("Layout")]
     [SerializeField] private Vector2 panelSize = new Vector2(760f, 430f);
@@ -45,11 +48,25 @@ public class BullfightStartMenu : MonoBehaviour
     [SerializeField] private Color buttonTextColor = new Color(1f, 0.95f, 0.86f, 1f);
     [SerializeField] private Color buttonHighlightColor = new Color(0.68f, 0.16f, 0.14f, 1f);
     [SerializeField] private Color buttonPressedColor = new Color(0.42f, 0.06f, 0.06f, 1f);
+
+    [Header("Press Feedback")]
+    [SerializeField, Range(0f, 1f)] private float pressRumbleLowFrequency = 0.35f;
+    [SerializeField, Range(0f, 1f)] private float pressRumbleHighFrequency = 0.65f;
+    [SerializeField] private float pressRumbleDuration = 0.12f;
+
     private Canvas canvas;
     private GameObject root;
     private Button startButton;
     private Button tutorialButton;
+    private AudioSource selectionAudioSource;
+    private AudioClip startFocusClip;
+    private AudioClip tutorialFocusClip;
+    private float focusClipVolume = 1f;
+    private GameObject lastSelectedObject;
     private bool started;
+    private Coroutine pressRumbleRoutine;
+
+    public bool IsMenuVisible => canvas != null && canvas.gameObject.activeSelf;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureStartMenuExists()
@@ -76,15 +93,16 @@ public class BullfightStartMenu : MonoBehaviour
             return;
 
         EnsureButtonSelected();
+        UpdateSelectionAudio();
 
         if (!WasConfirmRequestedThisFrame() || EventSystem.current == null)
             return;
 
         GameObject selected = EventSystem.current.currentSelectedGameObject;
         if (selected == tutorialButton?.gameObject)
-            BeginTutorial();
+            OnTutorialButtonPressed();
         else
-            BeginGame();
+            OnStartButtonPressed();
     }
 
     public void BeginGame()
@@ -95,8 +113,10 @@ public class BullfightStartMenu : MonoBehaviour
         started = true;
         HideMenu();
 
-        BullfightGameFlow gameFlow = FindObjectOfType<BullfightGameFlow>(true);
+        ManualStartMenuController manualMenu = FindObjectOfType<ManualStartMenuController>(true);
+        manualMenu?.SetGameplayUiVisibleForGameplay(true);
 
+        BullfightGameFlow gameFlow = FindObjectOfType<BullfightGameFlow>(true);
         if (gameFlow == null)
         {
             GameObject gameFlowObject = new("BullfightGameFlow");
@@ -104,7 +124,7 @@ public class BullfightStartMenu : MonoBehaviour
         }
 
         gameFlow.SetMainMenuGameplayLocked(false);
-        gameFlow.StartPhaseOneDirect(); // ? ??
+        gameFlow.StartPhaseOneDirect();
     }
 
     public void BeginTutorial()
@@ -115,6 +135,9 @@ public class BullfightStartMenu : MonoBehaviour
         started = true;
         HideMenu();
 
+        ManualStartMenuController manualMenu = FindObjectOfType<ManualStartMenuController>(true);
+        manualMenu?.SetGameplayUiVisibleForGameplay(true);
+
         BullfightGameFlow gameFlow = FindObjectOfType<BullfightGameFlow>(true);
         if (gameFlow == null)
         {
@@ -124,6 +147,18 @@ public class BullfightStartMenu : MonoBehaviour
 
         gameFlow.SetMainMenuGameplayLocked(false);
         gameFlow.BeginTutorial();
+    }
+
+    public void ReturnToStartSelectionMenu()
+    {
+        ReturnToMenu();
+    }
+
+    public void ConfigureSelectionAudio(AudioClip startClip, AudioClip tutorialClip, float volume)
+    {
+        startFocusClip = startClip;
+        tutorialFocusClip = tutorialClip;
+        focusClipVolume = Mathf.Clamp01(volume);
     }
 
     public void ReturnToMenu()
@@ -141,6 +176,7 @@ public class BullfightStartMenu : MonoBehaviour
         if (canvas != null)
             canvas.gameObject.SetActive(false);
 
+        lastSelectedObject = null;
         Time.timeScale = 1f;
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -188,7 +224,7 @@ public class BullfightStartMenu : MonoBehaviour
         ConfigureTextRect(subtitle.rectTransform, subtitlePosition, new Vector2(620f, 42f));
 
         Text hint = CreateText("Hint", root.transform, hintText, hintFontSize, hintColor, FontStyle.Italic);
-        ConfigureTextRect(hint.rectTransform, hintPosition, new Vector2(660f, 34f));
+        ConfigureTextRect(hint.rectTransform, hintPosition, new Vector2(660f, 50f));
 
         float horizontalOffset = (buttonSize.x * 0.5f) + (buttonSpacing * 0.5f);
         startButton = CreateMenuButton(root.transform, "StartButton", startButtonText, buttonCenterPosition + new Vector2(-horizontalOffset, 0f));
@@ -198,15 +234,20 @@ public class BullfightStartMenu : MonoBehaviour
         ConfigureButtonNavigation(tutorialButton, startButton, selectOnLeft: startButton, selectOnRight: null);
 
         startButton.onClick.RemoveAllListeners();
-        startButton.onClick.AddListener(BeginGame);
+        startButton.onClick.AddListener(OnStartButtonPressed);
 
         tutorialButton.onClick.RemoveAllListeners();
-        tutorialButton.onClick.AddListener(BeginTutorial);
+        tutorialButton.onClick.AddListener(OnTutorialButtonPressed);
     }
 
     private void ShowMenu()
     {
         started = false;
+        lastSelectedObject = null;
+
+        ManualStartMenuController manualMenu = FindObjectOfType<ManualStartMenuController>(true);
+        manualMenu?.SetGameplayUiVisibleForGameplay(false);
+
         BullfightGameFlow gameFlow = FindObjectOfType<BullfightGameFlow>(true);
         gameFlow?.ResetSceneForMainMenu();
         gameFlow?.SetMainMenuGameplayLocked(true);
@@ -229,6 +270,95 @@ public class BullfightStartMenu : MonoBehaviour
             return;
 
         EventSystem.current.SetSelectedGameObject(startButton.gameObject);
+    }
+
+    private void UpdateSelectionAudio()
+    {
+        if (EventSystem.current == null)
+            return;
+
+        GameObject currentSelectedObject = EventSystem.current.currentSelectedGameObject;
+        if (currentSelectedObject == lastSelectedObject)
+            return;
+
+        lastSelectedObject = currentSelectedObject;
+
+        if (currentSelectedObject == startButton?.gameObject)
+            PlaySelectionClip(startFocusClip);
+        else if (currentSelectedObject == tutorialButton?.gameObject)
+            PlaySelectionClip(tutorialFocusClip);
+    }
+
+    private void PlaySelectionClip(AudioClip clip)
+    {
+        if (clip == null)
+            return;
+
+        if (selectionAudioSource == null)
+        {
+            selectionAudioSource = GetComponent<AudioSource>();
+            if (selectionAudioSource == null)
+                selectionAudioSource = gameObject.AddComponent<AudioSource>();
+
+            selectionAudioSource.playOnAwake = false;
+            selectionAudioSource.loop = false;
+            selectionAudioSource.spatialBlend = 0f;
+        }
+
+        selectionAudioSource.PlayOneShot(clip, focusClipVolume);
+    }
+
+    private void OnStartButtonPressed()
+    {
+        TriggerPressRumble();
+        BeginGame();
+    }
+
+    private void OnTutorialButtonPressed()
+    {
+        TriggerPressRumble();
+        BeginTutorial();
+    }
+
+    private void TriggerPressRumble()
+    {
+        TriggerRumble(
+            ref pressRumbleRoutine,
+            pressRumbleLowFrequency,
+            pressRumbleHighFrequency,
+            pressRumbleDuration);
+    }
+
+    private void TriggerRumble(ref Coroutine routine, float lowFrequency, float highFrequency, float duration)
+    {
+        if (Gamepad.current == null)
+            return;
+
+        if (routine != null)
+            StopCoroutine(routine);
+
+        routine = StartCoroutine(RumbleRoutine(
+            Mathf.Clamp01(lowFrequency),
+            Mathf.Clamp01(highFrequency),
+            Mathf.Max(0f, duration)));
+    }
+
+    private IEnumerator RumbleRoutine(float lowFrequency, float highFrequency, float duration)
+    {
+        Gamepad gamepad = Gamepad.current;
+        if (gamepad == null)
+            yield break;
+
+        gamepad.SetMotorSpeeds(lowFrequency, highFrequency);
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        gamepad.ResetHaptics();
     }
 
     private static bool WasConfirmRequestedThisFrame()
@@ -267,7 +397,7 @@ public class BullfightStartMenu : MonoBehaviour
         button.colors = colors;
 
         Text buttonLabel = CreateText("ButtonLabel", buttonObject.transform, label, buttonFontSize, buttonTextColor, FontStyle.Bold);
-        ConfigureTextRect(buttonLabel.rectTransform, Vector2.zero, buttonSize);
+        ConfigureTextRect(buttonLabel.rectTransform, Vector2.zero, buttonSize - new Vector2(24f, 12f));
         return button;
     }
 
@@ -305,14 +435,30 @@ public class BullfightStartMenu : MonoBehaviour
         gameObject.transform.SetParent(parent, false);
         Text text = gameObject.GetComponent<Text>();
         text.text = content;
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = GetUiFont();
         text.fontSize = fontSize;
         text.fontStyle = fontStyle;
         text.alignment = TextAnchor.MiddleCenter;
         text.color = color;
-        text.horizontalOverflow = HorizontalWrapMode.Overflow;
-        text.verticalOverflow = VerticalWrapMode.Overflow;
+        text.horizontalOverflow = HorizontalWrapMode.Wrap;
+        text.verticalOverflow = VerticalWrapMode.Truncate;
         return text;
+    }
+
+    private static Font GetUiFont()
+    {
+        if (cachedFont != null)
+            return cachedFont;
+
+        cachedFont = Font.CreateDynamicFontFromOSFont(new[]
+        {
+            "Microsoft JhengHei UI",
+            "Microsoft JhengHei",
+            "Segoe UI",
+            "Arial"
+        }, 18);
+
+        return cachedFont;
     }
 
     private GameObject CreateBorder(Transform parent, Vector2 anchoredPosition, Vector2 size)
@@ -356,4 +502,3 @@ public class BullfightStartMenu : MonoBehaviour
         rectTransform.offsetMax = Vector2.zero;
     }
 }
-

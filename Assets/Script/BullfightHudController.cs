@@ -904,8 +904,8 @@ public class BullfightHudController : MonoBehaviour
                 break;
             case BullfightGameFlow.PhaseTwoState.Standoff:
                 titleText = "\u5c0d\u5cd9";
-                subtitleText = "\u4fdd\u6301\u6c89\u9ed8 15 \u79d2\uff0c\u6216\u529b\u9053\u8d85\u904e 35 \u6253\u7834\u5c0d\u5cd9";
-                statusText = $"{Mathf.CeilToInt(gameFlow.PhaseTwoMercyTimeRemaining)}s";
+                subtitleText = "\u6309 E \u6216\u624b\u628a\u523a\u64ca\u9375\uff0c\u6216\u529b\u9053\u8d85\u904e 35 \u6253\u7834\u5c0d\u5cd9";
+                statusText = $"\u5012\u6578 {Mathf.CeilToInt(gameFlow.PhaseTwoMercyTimeRemaining)}s";
                 break;
             case BullfightGameFlow.PhaseTwoState.RoundPrepare:
             case BullfightGameFlow.PhaseTwoState.RoundWindow:

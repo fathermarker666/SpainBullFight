@@ -1236,7 +1236,7 @@ public class BullfightGameFlow : MonoBehaviour
                                          playerController.HasRecentPhaseTwoSensorReading() &&
                                          playerController.GetPhaseTwoSensorForce() >= playerController.PhaseTwoStabThreshold;
 
-        if (stabPressed)
+        if (stabPressed || sensorForceBreaksStandoff)
         {
             phaseTwoHasCommittedAttack = true;
             mercyTimer = 0f;
